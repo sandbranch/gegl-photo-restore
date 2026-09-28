@@ -1,0 +1,9 @@
+build/
+build-*/
+# photos downloaded for tests stay out of git (see PLAN.md)
+tests/images/*
+!tests/images/README.md
+!tests/images/manifest.json
+!tests/images/fetch.py
+tests/output/
+__pycache__/
