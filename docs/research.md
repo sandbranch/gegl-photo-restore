@@ -153,8 +153,9 @@ No user options (the command line parsing is commented out).
   of the unfaded scene; stage 1 alone gives 8.8 to 16. Stages 2 and 3
   matter.
 - On a public domain faded 1972 slide (section 5), stage 1 alone removes
-  the pink cast; pyrestore4.py's result is a little warmer
-  (docs/example-documerica-546220.jpg).
+  the pink cast; pyrestore4.py's result is a little warmer (a picture
+  made then, since replaced by docs/example-documerica.jpg with the
+  full method, 2026-11-18).
 
 ## 2. The physics of dye fading
 
@@ -361,8 +362,7 @@ built from its properties (the house repositories do this).
   POLLUTION" (Marc St. Gil, June 1972, NARA 546220), Commons page
   https://commons.wikimedia.org/wiki/File:CHEMICAL_PLANTS_ON_SHORE_ARE_CONSIDERED_PRIME_SOURCE_OF_POLLUTION_-_NARA_-_546220.jpg,
   licence templates `{{PD-USGov-EPA}}` and `{{NARA-cooperation}}` (read
-  in the page's wikitext), a strong pink cast. Used for
-  docs/example-documerica-546220.jpg (the 960 pixel wide Commons
-  thumbnail; left the scan, middle `restore:faded` stage 1, right
-  pyrestore4.py).
+  in the page's wikitext), a strong pink cast. Used for the README's
+  example, docs/example-documerica.jpg, with NARA 546873; five more
+  DOCUMERICA slides are in tests/images/manifest.json (2026-11-18).
 - The user's own photos are never used.
