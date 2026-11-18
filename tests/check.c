@@ -24,7 +24,8 @@
  * scene are printed (see check_fading); gray stays gray, alpha and broken pixels
  * pass through, few colours pass through, Light-Dark darkens, and the
  * result is the same for any tile size, requested region and buffer
- * origin; show=colour-map draws its plot in the lower left corner only.
+ * origin; show=colour-map draws its plot in the lower left corner only;
+ * the scene in Adobe RGB like and ProPhoto spaces still loses its cast.
  *
  *   check <build folder>
  *
@@ -749,6 +750,54 @@ check_invariance (const gfloat *orig)
   g_free (part);
 }
 
+/* the faded scene stored in another RGB space (babl's space name): the
+ * operation works in the image's own space (open question 4) and takes
+ * its colours to XYZ through it. The cast must be mostly removed (to
+ * less than 60% of the faded scene's); the cast left and the difference
+ * to the sRGB result are printed. Measured 2026-11-18: the binning and
+ * the power law act on that space's encoded values, so wide gamut
+ * spaces land less neutral (PLAN, "Found along the way"). */
+static void
+check_other_space (const gfloat *orig,
+                   const gchar  *space_name)
+{
+  const Babl   *space = babl_space (space_name);
+  const Babl   *sfmt  = babl_format_with_space ("R'G'B'A float", space);
+  gsize         n     = (gsize) W * H;
+  gfloat       *faded = fade (orig, &fadings[0]);
+  gfloat       *ref   = run (NULL, faded, W, H);
+  gfloat       *out   = g_new (gfloat, n * 4);
+  GeglBuffer   *buf   = gegl_buffer_new (GEGL_RECTANGLE (0, 0, W, H), sfmt);
+  GeglNode     *graph = gegl_node_new ();
+  GeglNode     *src   = gegl_node_new_child (graph, "operation", "gegl:buffer-source",
+                                             "buffer", buf, NULL);
+  GeglNode     *node  = gegl_node_new_child (graph, "operation", OP, NULL);
+  gdouble       mr[3], mo[3], mf[3], mean, p95;
+  gchar        *name;
+
+  /* sRGB values in, converted by babl into the other space's encoding */
+  gegl_buffer_set (buf, NULL, 0, babl_format (FMT), faded, GEGL_AUTO_ROWSTRIDE);
+  gegl_node_link (src, node);
+  gegl_node_blit (node, 1.0, GEGL_RECTANGLE (0, 0, W, H), babl_format (FMT), out,
+                  GEGL_AUTO_ROWSTRIDE, GEGL_BLIT_DEFAULT);
+  g_object_unref (graph);
+  g_object_unref (buf);
+
+  mean_lab (faded, n, mf);
+  mean_lab (ref, n, mr);
+  mean_lab (out, n, mo);
+  delta_e (out, ref, n, &mean, &p95);
+  name = g_strdup_printf ("other_space_%s_cast_reduced", space_name);
+  report (name, hypot (mo[1], mo[2]) < 0.6 * hypot (mf[1], mf[2]),
+          "mean a*, b* faded %.1f, %.1f; in sRGB %.1f, %.1f; in %s %.1f, %.1f "
+          "(Delta E to the sRGB result mean %.1f, 95%% %.1f)",
+          mf[1], mf[2], mr[1], mr[2], space_name, mo[1], mo[2], mean, p95);
+  g_free (name);
+  g_free (out);
+  g_free (ref);
+  g_free (faded);
+}
+
 /* show=colour-map: the plot changes only the lower left corner, enough
  * of it, and it is the same for tiles and origin; outside it the result
  * is that of show=result (and at amount 0 the input) */
@@ -835,6 +884,8 @@ main (int    argc,
       check_light_dark (orig);
       check_invariance (orig);
       check_colour_map (orig);
+      check_other_space (orig, "Adobish");
+      check_other_space (orig, "ProPhoto");
     }
   g_free (orig);
 

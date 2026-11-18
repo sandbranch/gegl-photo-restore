@@ -1,8 +1,9 @@
 # gegl-photo-restore
 
-**Status: working, before the GUI test.** All three stages of the method
-are in; the numerical, headless GIMP and reference tests pass; the dialog
-has not been looked at on screen yet (PLAN.md).
+**Status: working.** All three stages of the method are in; the
+numerical, headless GIMP and reference tests pass; the dialog was
+checked on screen in GIMP 3.2.8 (2026-11-18; the Show row added since
+has been checked headless only so far). PLAN.md has what remains.
 
 Restores the colours of scanned faded slides and prints automatically,
 as a non-destructive filter for GIMP 3.2 (a GEGL operation), after Geoff
@@ -114,7 +115,7 @@ lower is better). Final settings: 15.22.
 | Light-Dark default 1.5, not 1 | 1: 16.71; 1.25: 15.69; **1.5: 15.23**; 1.75: 14.94; 2: 15.08 (the last four at an earlier stage 2 weight of 5). 1.75 is a little better on these photos but darker on the faded slides. Checked again on 15 faded slides, below: 1.5 kept |
 | Saturation target 0.4, not 0.6, and the factor at most 1.5 (as Daniell's Restore2) | at Light-Dark 1: 0.6: 17.44, **0.4: 16.71**; at 1.5 (stage 2 weight 5): 0.6: 16.21, 0.4: 15.27, 0: 15.23. The limit changes nothing on the photos; without it a gray ramp came out green-yellow (mean a\* -6.6, b\* 3.6) in an earlier build, with it 1.1, -0.5 |
 | The colours are bin means of a box averaged copy, not the first pixel seen per bin of a nearest neighbour copy (open question 3) | first pixel 15.35, **means 15.39**: no measurable difference; means kept, as less dependent on noise and on which pixel comes first |
-| L\*u\*v\* from GEGL's XYZ adapted to D65, not Daniell's sRGB formulas (open question 4) | the white point re-derived around D50 instead: 15.17 against **15.23**: no measurable difference; D65 kept, so Daniell's white point numbers apply as they are, and images in other RGB spaces are converted properly |
+| L\*u\*v\* from GEGL's XYZ adapted to D65, not Daniell's sRGB formulas (open question 4) | the white point re-derived around D50 instead: 15.17 against **15.23**: no measurable difference; D65 kept, so Daniell's white point numbers apply as they are. Images in other RGB spaces go to XYZ through their own space, but the estimate works on their encoded values, so wide gamut images restore less neutrally (PLAN, "Found along the way") |
 | Everything in floating point: pyrestore4.py truncates to 8 bits inside its fits, and its stage 3 rounds linear light to 101 levels (`xpand`) | not measured separately |
 | The lightness percentiles exact, not from an integer histogram; stage 1's search one dimensional and closed form, not a simplex | the same stage 1 numbers within about 0.01 (docs/research.md) |
 
@@ -214,7 +215,7 @@ installed and the tests touch none of your own GIMP folders (they run
 with a throwaway home in tests/output and check your folders before and
 after).
 
-    tests/check.sh            # build, 27 numerical checks, also under ASan and UBSan
+    tests/check.sh            # build, 29 numerical checks, also under ASan and UBSan
     tests/check.sh quick      # the same without the sanitizers
     tests/gimp-check.sh       # the filter in headless GIMP 3.2 against plain GEGL
     tests/reference.sh        # Daniell's pyrestore4.py on the same images (needs NumPy, Pillow)

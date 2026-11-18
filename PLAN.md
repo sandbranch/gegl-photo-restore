@@ -1,6 +1,6 @@
 # Plan
 
-Status: **steps 1 to 3 done, 4 and 5 in part** (2026-11-18, while
+Status: **steps 1 to 4 done, 5 in part** (2026-11-18, while
 David was away; see "Defaults chosen" below). The method, the tests and
 the measured numbers are in the README; the research behind this plan is
 in docs/research.md.
@@ -37,7 +37,10 @@ curve per channel.
   and sheets (README; defaults kept).
 - tests/photos.sh: the synthetic fading of the photos against
   pyrestore4.py and three baselines; `--slides`: the real slides.
-- tests/gui/shots.sh: written, **not run** (the GUI pass is David's).
+- tests/gui/shots.sh: run 2026-11-18 (all passed: the menu place, the
+  dialog, the filter live in the saved XCF). The `map` session (Show:
+  Colour map) was added after it and is **not run** yet; its combo box
+  position is estimated (see the script).
 
 ## The operation
 
@@ -148,9 +151,10 @@ stain as its own term (open question 7).
   1 alone gives 8.8 to 16.3 there.
   Also Delta E to `x` itself, printed. Kept: gray stays gray, alpha,
   broken pixels, few colours pass through, Light-Dark monotonic, the
-  same result for tiles, origin and region; to add: every property's
-  direction, `amount = 0` is the identity, other buffer formats and RGB
-  spaces, huge images (memory of the averaged copy only).
+  same result for tiles, origin and region; every property's direction,
+  `amount = 0` is the identity, 16 bit and float input, the colour map,
+  the scene in Adobe RGB like and ProPhoto spaces (done, 29 checks); to
+  add: huge images (memory of the averaged copy only).
 - **Real unfaded photos, faded synthetically**: CC0 and public domain
   photos from Wikimedia Commons (licence read on each file page, as in
   gegl-presence's tests/images/manifest.json; a fetch script, the photos
@@ -192,10 +196,10 @@ stain as its own term (open question 7).
    Delta E 15.22, better than every baseline (gray world 16.22) and
    than pyrestore4.py (20.02); gray world is better on the 95th
    percentile (23.2 against 24.5) and on the worst photo.
-4. GUI test and screenshots; bench on 24 megapixels. **Bench done**
-   (0.29 s); the GUI test is written, not run.
+4. GUI test and screenshots; bench on 24 megapixels. **Done** (0.29 s;
+   the GUI test passed 2026-11-18, its new `map` session not run yet).
 5. README with method, numbers and examples; version 0.1. **README
-   done**; version 0.1 after the GUI pass.
+   done**; version 0.1 when David has looked at it.
 6. Tell the PhotoRestore issue #2 (the GIMP 3 question) where this is,
    once released.
 
@@ -209,7 +213,10 @@ stain as its own term (open question 7).
   with Bradford (Daniell's white point as it is) and the white point
   re-derived around D50 measure the same (15.23 against 15.17); D65
   kept. Images in other RGB spaces are converted through their own
-  space to XYZ, not treated as sRGB.
+  space to XYZ, not treated as sRGB; the estimate and the power law work
+  on the space's own encoded values. Measured since (2026-11-18 evening)
+  that this leaves wide gamut images less neutral; see "Found along the
+  way". Still open for David.
 - Q5 picked neutral: later.
 - Q6 clipping: the result is clipped at 1 except where the input was
   above 1 (high dynamic range float images keep those values). Decided
@@ -289,6 +296,20 @@ stain as its own term (open question 7).
   Report upstream.
 - Daniell's Restore3.py opens a debug file at a hard-coded path of his own
   (not commented out), so it cannot run elsewhere.
+- Images in wide gamut spaces restore less neutrally (tests/check.c,
+  other_space checks, the generated scene faded with Daniell's Table 1):
+  the cast left (mean a\*, b\* of the result seen in sRGB) is 1.0, 0.7
+  for sRGB input, -1.2, 4.2 in babl's Adobish (Adobe RGB like; Delta E
+  to the sRGB result mean 6.2) and -2.5, 11.4 in ProPhoto (mean 14.7).
+  Stage 1 alone already differs (ProPhoto b\* -11.0 against sRGB -3.5):
+  the bins and the power law act on that space's encoded values, where
+  the same colours crowd nearer the grey axis. A trial build that makes
+  the estimate and the correction in sRGB R'G'B' (babl converting in
+  and out) gave the same result in all three spaces (Delta E 0.2 to the
+  sRGB result, all 33 checks of that build passing), but would clip
+  colours outside sRGB to its edges; not kept, as it changes open
+  question 4's second half, which is David's. Scanners give sRGB or
+  Adobe RGB, so Adobish is the case that matters.
 - Stage 2 can jump between minima as Light-Dark changes: on the
   chemical plant slide (NARA 546220) between 1.3 and 1.35 its blue scale
   goes from 0.88 to 1.25 and the hazy sky clips in blue (36.5% of the
