@@ -1,7 +1,9 @@
 # Plan
 
-Status: **skeleton, for review before building.** The research behind
-this plan is in docs/research.md.
+Status: **steps 1 to 3 done, 4 and 5 in part** (2026-11-18, while
+David was away; see "Defaults chosen" below). The method, the tests and
+the measured numbers are in the README; the research behind this plan is
+in docs/research.md.
 
 ## Goal
 
@@ -12,18 +14,23 @@ Nothing in GIMP, GEGL, G'MIC, darktable or RawTherapee does this; their
 automatic tools estimate one illuminant (gains), not a separate dye loss
 curve per channel.
 
-## Done (the skeleton)
+## Done
 
-- `restore:faded` (operations/faded.c): **stage 1 only** of Daniell's
-  newest method (pyrestore4.py), labelled as such in the code, the
-  operation's description and the README. Whole-image estimate, one power
-  and scale per channel, Light-Dark. Colors > Auto > Restore Faded
-  Colors.
-- tests/check.sh: 13 checks, also under ASan and UBSan.
-- tests/gimp-check.sh: the filter in headless GIMP 3.2.6 (every
-  precision, grayscale, XCF, offsets, the gegl command line), 29 checks.
-- tests/reference.sh: Daniell's pyrestore4.py (ported to Python 3,
-  tests/reference) on the same images, for comparison.
+- `restore:faded` (operations/faded.c): all three stages of Daniell's
+  newest method (pyrestore4.py), with the deviations the tests measured
+  as better (README, "Deviations"), and every property below except
+  `show`. Whole image estimate, deterministic; the per pixel part in
+  parallel. 0.29 s on 24 megapixels (tests/bench.sh).
+- tests/check.sh: 23 checks, also under ASan and UBSan, among them the
+  grid of 54 fadings (mean Delta E 6.53, worst 11.3).
+- tests/gimp-check.sh: the filter in headless GIMP 3.2 (every precision,
+  grayscale, XCF, offsets, the gegl command line), all pass.
+- tests/reference.sh: pyrestore4.py on the same images and the grid.
+- tests/images/fetch.py and manifest.json: 10 CC0 photos and 6 faded
+  DOCUMERICA slides from Commons, licence read per file, SHA-256 checked.
+- tests/photos.sh: the synthetic fading of the photos against
+  pyrestore4.py and three baselines; `--slides`: the real slides.
+- tests/gui/shots.sh: written, **not run** (the GUI pass is David's).
 
 ## The operation
 
@@ -41,17 +48,17 @@ matches `gimp:menu-path` against labels without mnemonics
 place is to be confirmed on screen in the GUI test (not done yet). Open
 question 1.
 
-**Properties** (proposed; the skeleton has only the first):
+**Properties** (all done but `show`):
 
 | Property | Type, range, default | What |
 |---|---|---|
-| `light-dark` | double 0.5 to 2.0, 1.0 | Daniell's Light-Dark: the ideal ramp `(i/n)^gamma`; larger is darker |
+| `light-dark` | double 0.5 to 2.0, 1.5 (Daniell: 1.0; measured, README) | Daniell's Light-Dark: the ideal ramp `(i/n)^gamma`; larger is darker |
 | `neutralize` | boolean, on | stage 2: the grey balance in L\*u\*v\* (pyrestore4.py) |
-| `warmth` | double -1 to 1, 0 | shifts the neutral target towards yellow or blue; 0 is Daniell's empirical white point (`U0 = 0.2005, V0 = 0.4665`); his Restore1 "Make less blue" and Restore2 `u_off, v_off = 2` did the same by other means |
+| `warmth` | double -1 to 1, 0 | shifts the neutral target towards yellow or blue, at 1 by half the way from the D65 to the D50 white in u'v'; 0 is Daniell's empirical white point (`U0 = 0.2005, V0 = 0.4665`); his Restore1 "Make less blue" and Restore2 `u_off, v_off = 2` did the same by other means |
 | `enhance-lightness` | boolean, on | stage 3: the 2.5% and 97.5% lightness ends moved half way to L\* 10 and 95 |
-| `saturation` | double 0 to 1, 0.6 | stage 3: the mean saturation is raised to this if below (0 = off); pyrestore4.py's `sat_targ` |
+| `saturation` | double 0 to 1, 0.4 (Daniell: 0.6; measured) | stage 3: the mean saturation is raised to this if below, by at most 1.5 times (0 = off); pyrestore4.py's `sat_targ` |
 | `amount` | double 0 to 1, 1 | how much of the correction: the exponents and scales blended towards 1 (Restore1's "Degree of Restoration") |
-| `show` | enum: result, colour map | "colour map" draws Daniell's diagnostic plot (the sorted colours per channel, before and after) over the image, for users who want to see why |
+| `show` | enum: result, colour map | **not done**: "colour map" draws Daniell's diagnostic plot (the sorted colours per channel, before and after) over the image, for users who want to see why; drawing a plot into the output is a piece of work of its own, left for later |
 
 No "Save parameters": the filter's settings are saved in the XCF, and
 GIMP presets exist for the dialog. The estimated numbers could be shown
@@ -69,7 +76,8 @@ gamma encoding (sRGB's linear toe makes it nearly so).
    bounding box is required (`get_required_for_output`,
    `get_cached_region` and `get_invalidated_by_change` return it, as in
    gegl-presence), read in bands of rows in a fixed order into a box
-   averaged copy of at most about 512 pixels on the long side (Daniell:
+   averaged copy of at most about 100 pixels on the long side (measured
+   better than 512, README; Daniell:
    1/8 nearest neighbour, or GIMP's scale to 1/10); pixels with alpha 0
    or not finite are left out. The copy's colours are binned 16 levels per
    channel (4096 bins, pyrestore4.py's top 4 bits); each non-empty bin
@@ -87,31 +95,31 @@ gamma encoding (sRGB's linear toe makes it nearly so).
    numbers (a power and a scale per channel) minimising pyrestore4.py's
    `Loff^2 + u0^2 + u1^2/3 + u2^2/5 + v0^2 + v1^2/3 + v2^2/5` (mean L\* at
    50, and `u*, v*` neutral on average and not drifting with lightness,
-   the first three Legendre moments). A deterministic Nelder-Mead (fixed
-   start 1, fixed steps 0.02, fixed limit of evaluations, as Daniell) or
-   Gauss-Newton on the seven residuals; both are small (n up to 4096,
-   six unknowns). L\*u\*v\* from babl's "CIE Yuv" (D50, the house
-   convention) or Daniell's own D65 formulas: open question 4.
+   the first three Legendre moments). **Done** as Levenberg-Marquardt on
+   the seven residuals plus six that hold the numbers towards no change
+   (weight 1 per log; README), from no change, steps kept within 0.01
+   to 100, deterministic. L\*u\*v\* from GEGL's XYZ adapted to D65
+   (open question 4, default chosen).
 4. **Combine** stages 1 and 2 into one power and scale per channel (the
    family is closed under composition), then `amount`.
 5. **Stage 3, enhancement**: on the colour list after 4, the 2.5% and
    97.5% L\* percentiles, the two piece linear L\* map and the `u, v`
    scale of pyrestore4.py. Per pixel in L\*u\*v\* (L\* scaled, u\*, v\*
    scaled with it), then back.
-6. **Apply** per pixel: the per channel power and scale, then stage 3.
-   Values above 1 are clipped as Daniell does (8 bit) unless the input
-   is high dynamic range: open question 6. Alpha as it is; pixels that
-   are not finite unchanged.
+6. **Apply** per pixel: the per channel power and scale, then stage 3
+   (done, in parallel). Values above 1 are clipped as Daniell does (8
+   bit) except where the input was above 1 (open question 6, default
+   chosen). Alpha as it is; pixels that are not finite unchanged.
 7. **Quality** (pyrestore4.py labels good, poor, bad, fail from the
-   residual): no way to show it in a GIMP filter dialog; log it with
-   `g_debug`, and clamp impossible fits (negative parameters) to no
-   change.
+   residual): no way to show it in a GIMP filter dialog; logged with
+   `g_debug`; the stage 2 steps cannot leave 0.01 to 100, so the
+   negative exponents of pyrestore4.py's "fail" cannot occur.
 
 The estimate runs once per render of the whole image (the cached region
 is all of it). GIMP's preview re-renders on every slider move; the
 estimate is cheap (a pass over the pixels plus a few thousand colours),
-the per pixel part is a power per channel, so this should be fast;
-measured in a bench on 24 megapixels before 1.0, as gegl-presence did.
+the per pixel part is a power per channel and a conversion to
+L\*u\*v\* and back. Measured: 0.29 s on 24 megapixels (tests/bench.sh).
 
 Not planned: side absorption correction (Restore1 had it; Daniell
 dropped it; needs narrow band scans to mean anything, Gschwind);
@@ -166,14 +174,49 @@ stain as its own term (open question 7).
 ## Steps
 
 1. Stage 2 and the combination; the invariance target met on the
-   generated grid.
-2. Stage 3 and the remaining properties.
+   generated grid. **Done**: grid mean 6.69 against pyrestore4.py's 7.04
+   (worst 11.5 against 18.1; tests/reference.sh). On the three named
+   fadings pyrestore4.py is still closer (2.9 to 5.5 against 6.4 to 9.1).
+2. Stage 3 and the remaining properties. **Done** but `show`.
 3. The photo fetch script and manifest; the synthetic fading of real
-   photos with the baselines; the DOCUMERICA slides.
-4. GUI test and screenshots; bench on 24 megapixels.
-5. README with method, numbers and examples; version 0.1.
+   photos with the baselines; the DOCUMERICA slides. **Done**: mean
+   Delta E 15.22, better than every baseline (gray world 16.22) and
+   than pyrestore4.py (20.02); gray world is better on the 95th
+   percentile (23.2 against 24.5) and on the worst photo.
+4. GUI test and screenshots; bench on 24 megapixels. **Bench done**
+   (0.29 s); the GUI test is written, not run.
+5. README with method, numbers and examples; version 0.1. **README
+   done**; version 0.1 after the GUI pass.
 6. Tell the PhotoRestore issue #2 (the GIMP 3 question) where this is,
    once released.
+
+## Defaults chosen 2026-11-18 while David was away; easy to change
+
+- Q1 menu: kept Colors > Auto; the GUI pass is to confirm it on screen.
+- Q3 colour list: decided by measurement: bin means of a box averaged
+  copy (15.39) and Daniell's first pixel per bin (15.35) measure the
+  same; means kept (less dependent on noise and pixel order).
+- Q4 colour science: decided by measurement: GEGL's XYZ adapted to D65
+  with Bradford (Daniell's white point as it is) and the white point
+  re-derived around D50 measure the same (15.23 against 15.17); D65
+  kept. Images in other RGB spaces are converted through their own
+  space to XYZ, not treated as sRGB.
+- Q5 picked neutral: later.
+- Q6 clipping: the result is clipped at 1 except where the input was
+  above 1 (high dynamic range float images keep those values). Decided
+  by the values, not by the buffer format.
+- Q7 yellow stain: later.
+- Q8 batch: none.
+- Q9 upstream: kept here for now.
+- Q10 name: "Restore Faded Colors"; Daniell credited in the operation's
+  description and the README.
+- Light-Dark default 1.5 and Saturation 0.4 instead of Daniell's 1 and
+  0.6, by measurement on the photos (README). For David to judge on his
+  own faded slides: 1.5 is a little darker than Daniell's; 1.75 measured
+  slightly better still (14.94) but looked dark on the DOCUMERICA
+  slides. The ten test photos are modern, often dark and colour graded
+  (Unsplash), so they favour a darker default more than family slides
+  might.
 
 ## Open questions for the user
 
@@ -212,6 +255,19 @@ stain as its own term (open question 7).
     Daniell in the title ("Restore Faded Colors (PhotoRestore)")?
 
 ## Found along the way
+
+- pyrestore4.py stops with an error ("zero to a negative power") on 4 of
+  the 54 fadings of the grid: its stage 2 simplex returns a negative
+  exponent (its own "fail" label) and the power of a zero channel then
+  raises.
+- XCF keeps a filter's double settings as single precision floats (0.7
+  comes back as 0.699999988; checked in headless GIMP), so a filter
+  loaded from XCF can differ a little from the one saved;
+  tests/gimp-check.py compares it at the settings it came back with.
+- Wikimedia's media server answers Python's own HTTP client with 429 at
+  once and curl with the same User-Agent with 200; tests/images/fetch.py
+  uses curl and waits when asked. Originals of large files were refused
+  repeatedly; the 2560 pixel renditions came through.
 
 - GIMP's manual says White Balance discards 0.05% of pixels at each end
   (docs.gimp.org/3.0/en/gimp-layer-white-balance.html); GIMP 3.2.6's
