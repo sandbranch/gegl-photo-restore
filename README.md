@@ -31,7 +31,8 @@ tiles or region GIMP renders.
 
 ## Build and test
 
-Built against the GIMP Flatpak's own GEGL with
+Built against the GEGL of the native GIMP 3 (on Debian and Ubuntu `sudo
+apt install gimp libgimp-3.0-dev meson ninja-build`) with
 [gimp-devtools](../gimp-devtools) next to this folder; nothing is
 installed and the tests touch none of your own GIMP folders (they run
 with a throwaway home in tests/output and check your folders before and
@@ -39,12 +40,12 @@ after).
 
     tests/check.sh          # build, 13 numerical checks, also under ASan and UBSan
     tests/check.sh quick    # the same without the sanitizers
-    tests/gimp-check.sh     # the filter in headless GIMP 3.2.6 against plain GEGL
+    tests/gimp-check.sh     # the filter in headless GIMP 3.2 against plain GEGL
     tests/reference.sh      # Daniell's pyrestore4.py on the same images (needs NumPy, Pillow)
 
 To try it in GIMP by hand, build with `meson setup build
--Dmoduledir=<GEGL_OPDIR>` (`../gimp-devtools/gimp-build.sh --env` prints
-the folder) and `ninja -C build install`. GIMP loads GEGL operations at
+-Dmoduledir=$HOME/.local/share/gegl-0.4/plug-ins` and `ninja -C build
+install`. GIMP loads GEGL operations at
 start.
 
 ## Files

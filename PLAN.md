@@ -160,7 +160,7 @@ stain as its own term (open question 7).
   `--new-instance` (as gegl-presence's tests/gui/start.sh) so it never
   talks to a GIMP the user has open.
 - Everything through tests/isolate.sh: a throwaway home in tests/output,
-  the build in the Flatpak's SDK (gimp-devtools/gimp-build.sh with
+  the build against the native GIMP (gimp-devtools/gimp-build.sh with
   GIMP_RUN_HOME), the user's folders listed before and after.
 
 ## Steps

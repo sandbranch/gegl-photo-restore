@@ -1,8 +1,9 @@
 #!/bin/sh
-# The operation as a non-destructive filter in the Flatpak GIMP, without
+# The operation as a non-destructive filter in the native GIMP, without
 # a window (tests/gimp-check.py): on RGB images of every precision and a
 # grayscale one, a layer with offsets, through an XCF save and load,
-# against plain GEGL; then GIMP's results against the gegl command line. Uses the modules from
+# against plain GEGL; then GIMP's results against the gegl command line
+# (tests/gegl-op.py, as the gegl tool runs an operation). Uses the modules from
 # tests/output/build-check (or $BUILD; tests/check.sh builds it), a
 # throwaway GIMP profile in tests/output/gimp-profile (GIMP3_DIRECTORY)
 # and a throwaway home (tests/common.sh), so the installed filters and
@@ -32,17 +33,11 @@ status=0
 snapshot_begin gimp
 
 GIMP3_DIRECTORY="$out/gimp-profile"
-GEGL_PATH="$mod:/app/lib/gegl-0.4"
+GEGL_PATH="$mod:$(pkg-config --variable=pluginsdir gegl-0.4)"
 RESTORE_GIMP_OUT="$check_out"
 export GIMP3_DIRECTORY GEGL_PATH RESTORE_GIMP_OUT
 pass_env="GIMP3_DIRECTORY GEGL_PATH RESTORE_GIMP_OUT"
-# the Flatpak's GIMP unless GIMP_FLATPAK=0 (as gimp-run.sh chooses)
-if [ "${GIMP_FLATPAK:-}" != 0 ] && command -v flatpak >/dev/null 2>&1 &&
-   flatpak info org.gimp.GIMP >/dev/null 2>&1; then
-    console=gimp-console-3.2
-else
-    console=$(command -v gimp-console-3.2 || command -v gimp-console)
-fi
+console=$(command -v gimp-console-3.2 || command -v gimp-console)
 
 run_prefix="--timeout=1800" in_gimp $console --no-interface --no-data --no-fonts \
   --batch-interpreter python-fu-eval \
@@ -64,10 +59,10 @@ EOF
 rm -f "$out/gimp-check-cli.log"
 while read -r label op props; do
     # shellcheck disable=SC2086
-    # (the gegl program warns of one leaked GeglBuffer after any
-    # operation that caches its whole result, GEGL's own
-    # gegl:stretch-contrast too: into the log)
-    in_gimp gegl "$check_out/scene.tif" -o "$check_out/cli-$label.tif" -- $op $props \
+    # (GEGL warns of one leaked GeglBuffer after any operation that
+    # caches its whole result, GEGL's own gegl:stretch-contrast too:
+    # into the log)
+    in_gimp python3 "$here/gegl-op.py" "$check_out/scene.tif" "$check_out/cli-$label.tif" $op $props \
       >>"$out/gimp-check-cli.log" 2>&1 ||
       { echo "FAIL  gegl command line for $label"; status=1; }
 done < "$check_out/cli.txt"
