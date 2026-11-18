@@ -12,8 +12,8 @@
 #   tests/gui/shots.sh                          all
 #   RESTORE_SHOTS="dialog" tests/gui/shots.sh   some (colors dialog live)
 #
-# Not run yet (2026-11-18): the positions below other than the search
-# field are first guesses, to be checked with tests/gui/look.sh.
+# The positions were measured on screenshots (2026-11-18, GIMP 3.2.8,
+# the interface font DejaVu Sans as gimp-devtools pins it).
 #
 # Prints PASS or FAIL per step and exits non-zero if one failed.
 #
@@ -55,6 +55,7 @@ move_dialog () {
 }
 
 COLORS=321,49
+AUTO=338,400
 # on Broadway the search field of Search Actions needs a click before it
 # takes the keys
 SEARCH_FIELD=360,176
@@ -81,10 +82,11 @@ session () {
     done
     case $name in
     colors)
-        # the Colors menu; Auto's submenu is to be opened by hovering it
-        # once its place is known (look.sh)
-        $cdp "$view" click:$COLORS wait:1500 shot:"$docs/colors-menu.png" key:Escape >/dev/null &&
-          pass "colors: the Colors menu";;
+        # the Colors menu with Auto's submenu open (hovered), where
+        # Restore Faded Colors... is
+        $cdp "$view" click:$COLORS wait:1500 move:$AUTO wait:1500 \
+          shot:"$docs/colors-menu.png" key:Escape key:Escape >/dev/null &&
+          pass "colors: Colors > Auto";;
     dialog)
         search_filter dialog || { stop_all; return; }
         $cdp "$view" wait:6000 shot:"$docs/restore-faded-dialog.png" >/dev/null &&

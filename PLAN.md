@@ -45,8 +45,8 @@ to White Balance and Stretch Contrast. That submenu exists in GIMP 3.2.6
 (`menus/image-menu.ui.in.in`, label `_Auto` under `_Colors`) and GIMP
 matches `gimp:menu-path` against labels without mnemonics
 (`app/menus/filters-menu.c`, `app/widgets/gimpmenumodel.c`); the item's
-place is to be confirmed on screen in the GUI test (not done yet). Open
-question 1.
+place is confirmed on screen in the GUI test (GIMP 3.2.8, 2026-11-18:
+last in Colors > Auto, docs/colors-menu.png). Open question 1.
 
 **Properties** (all done but `show`):
 

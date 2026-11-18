@@ -25,8 +25,13 @@ on the same files.
 
 ## Use
 
-**Colors > Auto > Restore Faded Colors** (the place is to be confirmed
-in the GUI test). With the defaults it is one click; the settings:
+**Colors > Auto > Restore Faded Colors**, below White Balance and Color
+Enhance (seen in GIMP 3.2.8). With the defaults it is one click; the
+settings:
+
+![Colors > Auto > Restore Faded Colors...](docs/colors-menu.png)
+
+![The dialog on a faded DOCUMERICA slide (public domain)](docs/restore-faded-dialog.png)
 
 | Setting | Default | What |
 |---|---|---|
