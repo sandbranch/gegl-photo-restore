@@ -4,7 +4,7 @@
 # prints the cast that remains (the mean a*, b* of the whole image, and
 # of its near neutral pixels, chroma below 12 in the result) and writes a
 # sheet per slide (the scan, restore:faded, pyrestore4.py) to look at.
-# Run by tests/slides.sh.
+# Run by tests/photos.sh --slides.
 #
 #   slides.py <output folder> [--size N] [--props "name=value ..."]
 #
