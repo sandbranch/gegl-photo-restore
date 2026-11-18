@@ -225,11 +225,18 @@ for label, op, title, props in CASES:
                     same = False
                     bad.append('%s=%r' % (k, got))
 
+        # XCF keeps double settings as single precision floats (0.7 comes
+        # back as 0.699999988), so the loaded filter is compared with
+        # plain GEGL at the settings it came back with
+        want2 = want
+        if same:
+            back = {k: cfg.get_property(k) for k in props}
+            want2 = quantized(gegl_result(ll.get_buffer(), op, back, W, H), loaded, ll)
         layer.merge_filters()
         got = pixels(layer)
         d = max_diff(got, want)
         ll.merge_filters()
-        d2 = max_diff(pixels(ll), want)
+        d2 = max_diff(pixels(ll), want2)
         tol = tol_for(prec)
         ok = ok_filter and same and d <= tol and d2 <= tol
         result(name, ok, 'non-destructive %s, settings after XCF %s, against plain GEGL '

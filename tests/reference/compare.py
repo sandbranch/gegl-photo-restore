@@ -58,3 +58,18 @@ print('Delta E 1976 to the same method on the unfaded scene (faded: to the scene
 print(head)
 for n in names:
     row(n, lambda kind: ref if kind == 'faded' else restored_unfaded.get(kind))
+
+# the grid of fadings of tests/check.c: each restoration to the same
+# method's restoration of the unfaded scene
+grid = sorted(f[:6] for f in os.listdir(out) if f.startswith('grid') and f.endswith('-faded.png'))
+if grid:
+    print()
+    print('The grid of %d fadings: Delta E to the same method on the unfaded scene' % len(grid))
+    print('%-18s %16s %16s' % ('', 'restore:faded', 'pyrestore4'))
+    stats = {}
+    for kind, name in (('restored', '%s-restored.png'), ('pyrestore4', 'pyrestore4-%s.png')):
+        ms = [de(lab(os.path.join(out, name % g)), restored_unfaded[kind])[0]
+              for g in grid if os.path.exists(os.path.join(out, name % g))]
+        stats[kind] = ms
+    print('%-18s %16.2f %16.2f' % ('mean', np.mean(stats['restored']), np.mean(stats['pyrestore4'])))
+    print('%-18s %16.2f %16.2f' % ('worst', np.max(stats['restored']), np.max(stats['pyrestore4'])))

@@ -41,6 +41,9 @@
 #include "modules.h"
 
 #define FMT "R'G'B'A float"
+/* the format of the input buffers: 16 bit, as most scans, so the result
+ * is clipped to 0 to 1 (float input keeps values above 1) */
+static const gchar *in_fmt = "R'G'B'A u16";
 #define OP  "restore:faded"
 #define W   384
 #define H   256
@@ -106,6 +109,7 @@ run_full (const gchar         *props,
           const GeglRectangle *roi)
 {
   const Babl   *fmt = babl_format (FMT);
+  const Babl   *bfmt = babl_format (in_fmt);
   GeglBuffer   *buf;
   GeglNode     *graph, *src, *node;
   GeglRectangle r   = roi ? *roi : *GEGL_RECTANGLE (0, 0, w, h);
@@ -115,9 +119,9 @@ run_full (const gchar         *props,
 
   if (tile_w > 0)
     buf = g_object_new (GEGL_TYPE_BUFFER, "x", ox, "y", oy, "width", w, "height", h,
-                        "format", fmt, "tile-width", tile_w, "tile-height", tile_h, NULL);
+                        "format", bfmt, "tile-width", tile_w, "tile-height", tile_h, NULL);
   else
-    buf = gegl_buffer_new (GEGL_RECTANGLE (ox, oy, w, h), fmt);
+    buf = gegl_buffer_new (GEGL_RECTANGLE (ox, oy, w, h), bfmt);
   gegl_buffer_set (buf, GEGL_RECTANGLE (ox, oy, w, h), 0, fmt, in, GEGL_AUTO_ROWSTRIDE);
   graph = gegl_node_new ();
   src   = gegl_node_new_child (graph, "operation", "gegl:buffer-source", "buffer", buf, NULL);
@@ -362,24 +366,21 @@ note (const gchar *name,
   g_free (detail);
 }
 
-/* The skeleton does the first of the three stages, which removes most
- * of a colour cast: the mean a*, b* of the faded scene must at least
- * halve (the scene itself is near neutral, mean a*, b* about 3, 1), for
- * the two fadings with a cast. The rest is printed (NOTE): Delta E to
- * the scene, and to the restoration of the unfaded scene. In Daniell's
- * model a faded image is the scene with a power and a scale per channel,
- * and so is its restoration, so restoring a faded copy should give
- * nearly the image the unfaded scene gives, whatever the fading; the
- * original PhotoRestore does that within a mean Delta E of 3 to 6 on
- * these images (tests/reference.sh) with all three stages, which is the
- * target for the full method (PLAN.md). How close either comes to the
- * scene itself depends on how "ideal" its colours are, and a generated
- * scene is not a photograph. */
+/* The cast of the faded scene must at least halve (the scene itself is
+ * near neutral, mean a*, b* about 3, 1), for the two fadings with a
+ * cast. In Daniell's model a faded image is the scene with a power and a
+ * scale per channel, and so is its restoration, so restoring a faded
+ * copy should give nearly the image the unfaded scene gives, whatever
+ * the fading: the Delta E 1976 between the two is the measure of the
+ * method (PLAN.md), printed here for three fadings and checked over a
+ * grid of fadings below. How close either comes to the scene itself
+ * depends on how "ideal" its colours are, and a generated scene is not
+ * a photograph, so that is only printed. */
 static void
-check_fading (const gfloat *orig)
+check_fading (const gfloat *orig,
+              const gfloat *same)
 {
   gsize   n    = (gsize) W * H;
-  gfloat *same = run (NULL, orig, W, H);
   gdouble m0, p0, m1, p1, m2, p2, lf[3], lr[3];
   guint   k;
 
@@ -423,7 +424,81 @@ check_fading (const gfloat *orig)
     }
   delta_e (same, orig, n, &m1, &p1);
   note ("delta_e_unfaded", "the restored scene to the scene: %.1f (95%% %.1f)", m1, p1);
-  g_free (same);
+}
+
+/* The grid of fadings: alpha 0.45, 0.7 and 0.95 for each channel (27),
+ * each with no loss of maximum and with maxima of 0.8, 0.9 and 1 in
+ * turn (54 fadings). The mean Delta E of restore (fade (scene)) to
+ * restore (scene) must stay below GRID_MEAN on average over the grid and
+ * below GRID_WORST for every fading: pyrestore4.py's numbers on the same
+ * 54 images (tests/reference.sh, measured 2026-11-18): mean 7.0, worst
+ * 18.1, and it fails with an error on 4 of them, not counted. */
+#define GRID_MEAN  7.0
+#define GRID_WORST 18.0
+
+static void
+grid_fading (gint    k,
+             Fading *f)
+{
+  static const gdouble a[3] = { 0.45, 0.7, 0.95 };
+  gint                 ch, j = k / 2;
+
+  f->name     = NULL;
+  f->alpha[0] = a[j / 9];
+  f->alpha[1] = a[(j / 3) % 3];
+  f->alpha[2] = a[j % 3];
+  for (ch = 0; ch < 3; ch++)
+    f->F[ch] = (k % 2) ? 0.8 + 0.1 * ((ch + j) % 3) : 1.0;
+}
+
+static void
+check_grid (const gfloat *orig,
+            const gfloat *same)
+{
+  gsize   n = (gsize) W * H;
+  gdouble sum = 0.0, worst = 0.0, worst95 = 0.0;
+  gint    k, kw = 0, nk = 54;
+
+  for (k = 0; k < nk; k++)
+    {
+      Fading  f;
+      gfloat *faded, *restored;
+      gdouble m, p;
+
+      grid_fading (k, &f);
+      faded    = fade (orig, &f);
+      restored = run (NULL, faded, W, H);
+      if (g_getenv ("RESTORE_CHECK_OUT"))
+        {
+          gchar *name = g_strdup_printf ("grid%02d-faded", k);
+
+          save_png (name, faded);
+          g_free (name);
+          name = g_strdup_printf ("grid%02d-restored", k);
+          save_png (name, restored);
+          g_free (name);
+        }
+      delta_e (restored, same, n, &m, &p);
+      sum += m;
+      if (m > worst)
+        {
+          worst = m;
+          kw    = k;
+        }
+      worst95 = MAX (worst95, p);
+      g_free (faded);
+      g_free (restored);
+    }
+  {
+    Fading f;
+
+    grid_fading (kw, &f);
+    report ("grid_of_fadings", sum / nk < GRID_MEAN && worst < GRID_WORST,
+            "%d fadings, Delta E to the restored scene: mean %.2f, worst %.2f "
+            "(alpha %.2f %.2f %.2f, maxima %.1f %.1f %.1f), largest 95th percentile %.1f",
+            nk, sum / nk, worst, f.alpha[0], f.alpha[1], f.alpha[2], f.F[0], f.F[1], f.F[2],
+            worst95);
+  }
 }
 
 static void
@@ -432,7 +507,7 @@ check_gray_alpha_broken (const gfloat *orig)
   gsize   n    = (gsize) W * H, i;
   gfloat *gray = g_new (gfloat, n * 4);
   gfloat *out, *in;
-  gdouble d = 0.0;
+  gdouble d = 0.0, m[3];
 
   for (i = 0; i < n; i++)
     {
@@ -441,13 +516,21 @@ check_gray_alpha_broken (const gfloat *orig)
       gray[i * 4] = gray[i * 4 + 1] = gray[i * 4 + 2] = v * v;
       gray[i * 4 + 3] = 1.0f;
     }
-  out = run (NULL, gray, W, H);
+  /* stage 1 alone has nothing to change in a gray image's balance */
+  out = run ("neutralize=false enhance-lightness=false saturation=0", gray, W, H);
   for (i = 0; i < n; i++)
     d = MAX (d, MAX (fabs (out[i * 4] - out[i * 4 + 1]), fabs (out[i * 4] - out[i * 4 + 2])));
-  report ("gray_stays_gray", d < 1e-6, "largest channel difference %.2g", d);
+  report ("gray_stays_gray_in_stage_1", d < 1e-6, "largest channel difference %.2g", d);
+  g_free (out);
+  /* the whole method makes it Daniell's slightly warm white, not more */
+  out = run (NULL, gray, W, H);
+  mean_lab (out, n, m);
+  report ("gray_ends_near_neutral", hypot (m[1], m[2]) < 4.0,
+          "mean a*, b* %.2f, %.2f", m[1], m[2]);
   g_free (out);
   g_free (gray);
 
+  in_fmt = "R'G'B'A float";
   in = g_memdup2 (orig, sizeof (gfloat) * n * 4);
   for (i = 0; i < n; i++)
     in[i * 4 + 3] = (i % 7) / 6.0f;
@@ -463,6 +546,134 @@ check_gray_alpha_broken (const gfloat *orig)
           "NaN and infinity kept, the other channels of those pixels finite");
   g_free (out);
   g_free (in);
+  in_fmt = "R'G'B'A u16";
+}
+
+/* each property's direction, the identity at amount 0, and clipping by
+ * format */
+static void
+check_properties (const gfloat *orig)
+{
+  gsize   n     = (gsize) W * H, i;
+  gfloat *faded = fade (orig, &fadings[0]);
+  gfloat *def   = run (NULL, faded, W, H);
+  gfloat *a, *b;
+  gdouble ma[3], mb[3], d, ca, cb;
+  gint    above;
+
+  in_fmt = "R'G'B'A float";
+  a = run ("amount=0", faded, W, H);
+  d = max_diff (a, faded, n * 4);
+  report ("amount_0_is_identity", d == 0.0, "largest difference %.2g", d);
+  g_free (a);
+  in_fmt = "R'G'B'A u16";
+
+  a = run ("amount=0.5", faded, W, H);
+  {
+    gdouble m0, p0, m1, p1;
+
+    delta_e (a, faded, n, &m0, &p0);
+    delta_e (def, faded, n, &m1, &p1);
+    report ("amount_half_is_between", m0 > 0.2 * m1 && m0 < 0.8 * m1,
+            "Delta E to the faded image: amount 0.5 %.1f, 1 %.1f", m0, m1);
+  }
+  g_free (a);
+
+  a = run ("warmth=-1", faded, W, H);
+  b = run ("warmth=1", faded, W, H);
+  mean_lab (a, n, ma);
+  mean_lab (b, n, mb);
+  report ("warmth_yellows", mb[2] > ma[2] + 2.0,
+          "mean b* at warmth -1 and 1: %.1f, %.1f", ma[2], mb[2]);
+  g_free (a);
+  g_free (b);
+
+  a = run ("neutralize=false", faded, W, H);
+  mean_lab (a, n, ma);
+  mean_lab (def, n, mb);
+  report ("neutralize_balances", hypot (mb[1], mb[2]) < hypot (ma[1], ma[2]),
+          "mean a*, b* without %.1f, %.1f, with %.1f, %.1f", ma[1], ma[2], mb[1], mb[2]);
+  g_free (a);
+
+  a = run ("saturation=0", faded, W, H);
+  b = run ("saturation=1", faded, W, H);
+  {
+    const Babl *fish = babl_fish (babl_format (FMT), babl_format ("CIE LCH(ab) alpha float"));
+    gfloat     *la   = g_new (gfloat, n * 4), *lb = g_new (gfloat, n * 4);
+
+    babl_process (fish, a, la, n);
+    babl_process (fish, b, lb, n);
+    ca = cb = 0.0;
+    for (i = 0; i < n; i++)
+      {
+        ca += la[i * 4 + 1];
+        cb += lb[i * 4 + 1];
+      }
+    report ("saturation_saturates", cb > ca * 1.05, "mean C*ab at 0 and 1: %.1f, %.1f",
+            ca / n, cb / n);
+    g_free (la);
+    g_free (lb);
+  }
+  g_free (a);
+  g_free (b);
+
+  {
+    gdouble sa = 0.0, sb = 0.0, mla = 0.0, mlb = 0.0;
+    const Babl *fish = babl_fish (babl_format (FMT), babl_format ("CIE Lab alpha float"));
+    gfloat     *la   = g_new (gfloat, n * 4), *lb = g_new (gfloat, n * 4);
+
+    a = run ("enhance-lightness=false", faded, W, H);
+    babl_process (fish, a, la, n);
+    babl_process (fish, def, lb, n);
+    for (i = 0; i < n; i++)
+      {
+        mla += la[i * 4];
+        mlb += lb[i * 4];
+      }
+    mla /= n;
+    mlb /= n;
+    for (i = 0; i < n; i++)
+      {
+        sa += (la[i * 4] - mla) * (la[i * 4] - mla);
+        sb += (lb[i * 4] - mlb) * (lb[i * 4] - mlb);
+      }
+    report ("enhance_lightness_stretches", sb > sa,
+            "standard deviation of L* without %.1f, with %.1f", sqrt (sa / n), sqrt (sb / n));
+    g_free (la);
+    g_free (lb);
+    g_free (a);
+  }
+
+  /* values above 1: only where the input was above 1 already */
+  for (i = 0, above = 0; i < n * 4; i++)
+    above += (i % 4 != 3) && def[i] > 1.0f;
+  report ("clipped_to_1", above == 0, "%d values above 1", above);
+  in_fmt = "R'G'B'A float";
+  {
+    gfloat *hdr = g_memdup2 (faded, sizeof (gfloat) * n * 4);
+    gint    kept = 0, other = 0;
+
+    for (i = 0; i < n; i += 97)
+      hdr[i * 4] = hdr[i * 4 + 1] = hdr[i * 4 + 2] = 1.5f;
+    a = run (NULL, hdr, W, H);
+    for (i = 0; i < n; i++)
+      {
+        gboolean was = hdr[i * 4] > 1.0f;
+
+        if (was)
+          kept += a[i * 4] > 1.0f || a[i * 4 + 1] > 1.0f || a[i * 4 + 2] > 1.0f;
+        else
+          other += a[i * 4] > 1.0f || a[i * 4 + 1] > 1.0f || a[i * 4 + 2] > 1.0f;
+      }
+    report ("above_1_kept_where_it_was", kept > 0 && other == 0,
+            "pixels set to 1.5 still above 1: %d of %d; others above 1: %d",
+            kept, (gint) ((n + 96) / 97), other);
+    g_free (hdr);
+    g_free (a);
+  }
+  in_fmt = "R'G'B'A u16";
+  g_free (def);
+  g_free (faded);
 }
 
 static void
@@ -480,7 +691,9 @@ check_few_colors (void)
       in[i * 4 + 2] = 0.2f;
       in[i * 4 + 3] = 1.0f;
     }
+  in_fmt = "R'G'B'A float";
   out = run (NULL, in, W, H);
+  in_fmt = "R'G'B'A u16";
   d   = max_diff (out, in, n * 4);
   report ("few_colors_passed_through", d == 0.0, "largest difference %.2g", d);
   g_free (out);
@@ -560,7 +773,12 @@ main (int    argc,
   check_registration ();
   if (gegl_has_operation (OP))
     {
-      check_fading (orig);
+      gfloat *same = run (NULL, orig, W, H);
+
+      check_fading (orig, same);
+      check_grid (orig, same);
+      g_free (same);
+      check_properties (orig);
       check_gray_alpha_broken (orig);
       check_few_colors ();
       check_light_dark (orig);
