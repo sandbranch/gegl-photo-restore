@@ -63,8 +63,8 @@ AUTO=338,400
 SEARCH_FIELD=360,176
 # the Show combo box, the dialog's last row since 2026-11-18 (after
 # Amount, which was at 1070,364 with the dialog moved to the top right):
-# NOT MEASURED, estimated one row (28 pixels) below Amount; check it on
-# tests/output/gui/map-before.png on the first run
+# one row (28 pixels) below Amount, confirmed on the screenshot of the
+# run of 2026-11-18
 SHOW=1070,392
 
 # search_filter <name>: opens Restore Faded Colors from Search Actions

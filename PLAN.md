@@ -38,9 +38,8 @@ curve per channel.
 - tests/photos.sh: the synthetic fading of the photos against
   pyrestore4.py and three baselines; `--slides`: the real slides.
 - tests/gui/shots.sh: run 2026-11-18 (all passed: the menu place, the
-  dialog, the filter live in the saved XCF). The `map` session (Show:
-  Colour map) was added after it and is **not run** yet; its combo box
-  position is estimated (see the script).
+  dialog, the filter live in the saved XCF, and the `map` session:
+  Show set to Colour map, the plot drawn, docs/restore-faded-map.png).
 
 ## The operation
 
