@@ -180,10 +180,11 @@ stain as its own term (open question 7).
 1. **Menu place**: Colors > Auto (next to White Balance; the skeleton), or
    Colors, or Filters > Enhance? Colors > Auto's other items are one-shot
    commands without dialogs.
-2. **Faithful or improved**: follow pyrestore4.py's numbers exactly (the
-   empirical white point, `L0 = 50`, `L_top = 95`, `L_bot = 10`,
-   `sat_targ = 0.6`, the 1/8 copy) so results match his within rounding,
-   or allow deviations where they are measurably better on the tests?
+2. **Faithful or improved**: decided 2026-11-18: improved. Start from
+   pyrestore4.py's numbers (the empirical white point, `L0 = 50`,
+   `L_top = 95`, `L_bot = 10`, `sat_targ = 0.6`, the 1/8 copy) and deviate
+   where the tests measure a better result; the README lists each
+   deviation and its numbers.
 3. **Colour list**: Daniell keeps the first pixel seen per bin on a
    nearest neighbour copy; the skeleton averages (box copy, bin means),
    which is less noise dependent but gives stage 1 exponents up to about
