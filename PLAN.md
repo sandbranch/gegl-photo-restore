@@ -18,10 +18,14 @@ curve per channel.
 
 - `restore:faded` (operations/faded.c): all three stages of Daniell's
   newest method (pyrestore4.py), with the deviations the tests measured
-  as better (README, "Deviations"), and every property below except
-  `show`. Whole image estimate, deterministic; the per pixel part in
-  parallel. 0.29 s on 24 megapixels (tests/bench.sh).
-- tests/check.sh: 23 checks, also under ASan and UBSan, among them the
+  as better (README, "Deviations"), and every property below. Whole
+  image estimate, deterministic; the per pixel part in parallel. 0.29 s
+  on 24 megapixels (tests/bench.sh).
+- `show`, colour map (2026-11-18 evening): a plot over the lower left
+  corner (README, "Why: the colour map"). Show: Result gives the same
+  bytes as before it existed (checked against the previous build on two
+  slides and a photo, float TIFF, byte identical).
+- tests/check.sh: 27 checks, also under ASan and UBSan, among them the
   grid of 54 fadings (mean Delta E 6.53, worst 11.3).
 - tests/gimp-check.sh: the filter in headless GIMP 3.2 (every precision,
   grayscale, XCF, offsets, the gegl command line), all pass.
@@ -48,7 +52,7 @@ matches `gimp:menu-path` against labels without mnemonics
 place is confirmed on screen in the GUI test (GIMP 3.2.8, 2026-11-18:
 last in Colors > Auto, docs/colors-menu.png). Open question 1.
 
-**Properties** (all done but `show`):
+**Properties** (all done):
 
 | Property | Type, range, default | What |
 |---|---|---|
@@ -58,7 +62,7 @@ last in Colors > Auto, docs/colors-menu.png). Open question 1.
 | `enhance-lightness` | boolean, on | stage 3: the 2.5% and 97.5% lightness ends moved half way to L\* 10 and 95 |
 | `saturation` | double 0 to 1, 0.4 (Daniell: 0.6; measured) | stage 3: the mean saturation is raised to this if below, by at most 1.5 times (0 = off); pyrestore4.py's `sat_targ` |
 | `amount` | double 0 to 1, 1 | how much of the correction: the exponents and scales blended towards 1 (Restore1's "Degree of Restoration") |
-| `show` | enum: result, colour map | **not done**: "colour map" draws Daniell's diagnostic plot (the sorted colours per channel, before and after) over the image, for users who want to see why; drawing a plot into the output is a piece of work of its own, left for later |
+| `show` | enum: result, colour-map; result | "Colour map" draws a plot over the lower left corner of the result: before and after, the colour list with each channel sorted on its own (a monotone curve per channel, added as light so agreement is white), the ideal ramp dashed, and the combined power per channel as text (a built in 5 x 7 font, no fonts needed). Drawn from the fit and the image size only, so tiles and regions give the same plot. Daniell plotted the channels along the luminance order (scattered points); sorting each on its own shows the same cast as smooth curves |
 
 No "Save parameters": the filter's settings are saved in the XCF, and
 GIMP presets exist for the dialog. The estimated numbers could be shown
@@ -177,7 +181,8 @@ stain as its own term (open question 7).
    generated grid. **Done**: grid mean 6.69 against pyrestore4.py's 7.04
    (worst 11.5 against 18.1; tests/reference.sh). On the three named
    fadings pyrestore4.py is still closer (2.9 to 5.5 against 6.4 to 9.1).
-2. Stage 3 and the remaining properties. **Done** but `show`.
+2. Stage 3 and the remaining properties. **Done** (`show` on
+   2026-11-18 evening).
 3. The photo fetch script and manifest; the synthetic fading of real
    photos with the baselines; the DOCUMERICA slides. **Done**: mean
    Delta E 15.22, better than every baseline (gray world 16.22) and

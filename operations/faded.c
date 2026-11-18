@@ -63,6 +63,9 @@
  * asks for all of it) in a fixed order, so the result does not depend on
  * tiles, threads or the region asked for. Alpha is passed through, and
  * pixels that are not finite are passed through unchanged.
+ *
+ * "Show" Colour map draws a plot of the estimate over the lower left
+ * corner of the result (see make_map).
  */
 
 #include <glib/gi18n-lib.h>
@@ -103,6 +106,19 @@ property_double (amount, _("Amount"), 1.0)
   description (_("How much of the correction to apply: 0 is none, 1 all."))
   value_range (0.0, 1.0)
   ui_digits (2)
+
+enum_start (restore_faded_show)
+  enum_value (RESTORE_FADED_RESULT, "result",     N_("Result"))
+  enum_value (RESTORE_FADED_MAP,    "colour-map", N_("Colour map"))
+enum_end (RestoreFadedShow)
+
+property_enum (show, _("Show"), RestoreFadedShow, restore_faded_show, RESTORE_FADED_RESULT)
+  description (_("The result, or the result with a plot of why in its lower "
+                 "left corner: the colours of the image, each channel "
+                 "sorted from dark to light, before and after the "
+                 "correction, with the ideal spread (Light-Dark) dashed. "
+                 "Where the three channels agree the curve is white; a "
+                 "channel apart from the others is a colour cast."))
 
 #else
 
@@ -793,11 +809,15 @@ make_copy (GeglBuffer          *input,
   return copy;
 }
 
+/* the fit; with keep, the averaged copy is handed over in *keep (3
+ * floats per pixel, *n_keep pixels; NULL if the fit is not ok) */
 static FadedFit
 estimate (GeglOperation       *operation,
           GeglBuffer          *input,
           const GeglRectangle *whole,
-          GeglProperties      *o)
+          GeglProperties      *o,
+          gfloat             **keep,
+          gint                *n_keep)
 {
   const Babl *space = gegl_operation_get_source_space (operation, "input");
   const Babl *rgb   = babl_format_with_space ("R'G'B' double", space);
@@ -818,6 +838,11 @@ estimate (GeglOperation       *operation,
   colors = g_new (FadedColor, FADED_BINS);
   nc     = make_colors (&fs, copy, n, fit.lambda, fit.sigma, colors);
   fit.n_colors = nc;
+  if (keep)
+    {
+      *keep   = NULL;
+      *n_keep = 0;
+    }
   if (nc < FADED_MIN_COLORS)
     {
       g_free (colors);
@@ -853,7 +878,13 @@ estimate (GeglOperation       *operation,
   g_free (colors);
 
   stage3 (&fs, copy, n, fit.lambda, fit.sigma, o->enhance_lightness, o->saturation, &fit);
-  g_free (copy);
+  if (keep)
+    {
+      *keep   = copy;
+      *n_keep = n;
+    }
+  else
+    g_free (copy);
 
   /* Amount: everything towards no change */
   for (ch = 0; ch < 3; ch++)
@@ -873,8 +904,324 @@ estimate (GeglOperation       *operation,
   return fit;
 }
 
-/* the result --------------------------------------------------------------- */
+/* the colour map ----------------------------------------------------------- */
 
+/* Show "colour map": a plot drawn over the lower left corner of the
+ * result. Two squares, before and after the correction: the colours of
+ * the averaged copy (one per bin, as the estimate sees them), each
+ * channel sorted from dark to light on its own, as a curve per channel,
+ * and the ideal spread (i / n)^Light-Dark dashed. The curves are added
+ * (red, green and blue light), so where the three channels agree the
+ * curve is white and a channel apart from the others shows in its own
+ * colour. Below them the combined power per channel. The plot depends
+ * only on the fit and the image size, so it is the same for any tiles
+ * or region. */
+
+typedef struct
+{
+  gint    x, y, w, h;   /* the plot's place in the image */
+  gfloat *rgba;         /* w h pixels, R'G'B'A, alpha not premultiplied */
+} FadedMap;
+
+/* a 5 x 7 font for the few characters the plot writes */
+static const struct
+{
+  gchar  c;
+  guint8 rows[7];
+} faded_glyphs[] = {
+  { 'A', { 0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11 } },
+  { 'B', { 0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e } },
+  { 'D', { 0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e } },
+  { 'E', { 0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f } },
+  { 'F', { 0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10 } },
+  { 'G', { 0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f } },
+  { 'I', { 0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e } },
+  { 'L', { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f } },
+  { 'O', { 0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e } },
+  { 'P', { 0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10 } },
+  { 'R', { 0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11 } },
+  { 'T', { 0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 } },
+  { 'W', { 0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0a } },
+  { '0', { 0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e } },
+  { '1', { 0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e } },
+  { '2', { 0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f } },
+  { '3', { 0x1f, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0e } },
+  { '4', { 0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02 } },
+  { '5', { 0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e } },
+  { '6', { 0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e } },
+  { '7', { 0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08 } },
+  { '8', { 0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e } },
+  { '9', { 0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c } },
+  { '.', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c } },
+};
+
+/* the curves: red, green and blue light, added; and the text */
+static const gfloat faded_curve[3][3] = { { 1.0f, 0.0f, 0.0f },
+                                          { 0.0f, 1.0f, 0.0f },
+                                          { 0.1f, 0.25f, 1.0f } };
+static const gfloat faded_ink[3][3]   = { { 1.0f, 0.35f, 0.35f },
+                                          { 0.35f, 1.0f, 0.35f },
+                                          { 0.5f, 0.65f, 1.0f } };
+static const gfloat faded_grey[3]     = { 0.8f, 0.8f, 0.8f };
+
+static inline void
+map_put (FadedMap     *map,
+         gint          x,
+         gint          y,
+         const gfloat *rgb,
+         gfloat        a)
+{
+  gfloat *p;
+
+  if (x < 0 || y < 0 || x >= map->w || y >= map->h)
+    return;
+  p = map->rgba + ((gsize) y * map->w + x) * 4;
+  p[0] = rgb[0];
+  p[1] = rgb[1];
+  p[2] = rgb[2];
+  p[3] = a;
+}
+
+static void
+map_rect (FadedMap     *map,
+          gint          x,
+          gint          y,
+          gint          w,
+          gint          h,
+          const gfloat *rgb,
+          gfloat        a)
+{
+  gint i, j;
+
+  for (j = y; j < y + h; j++)
+    for (i = x; i < x + w; i++)
+      map_put (map, i, j, rgb, a);
+}
+
+/* text at x, y (its top left), k pixels per font pixel; returns the x
+ * after it */
+static gint
+map_text (FadedMap     *map,
+          gint          x,
+          gint          y,
+          gint          k,
+          const gchar  *text,
+          const gfloat *rgb)
+{
+  for (; *text; text++, x += 6 * k)
+    {
+      guint g;
+      gint  row, col;
+
+      for (g = 0; g < G_N_ELEMENTS (faded_glyphs); g++)
+        if (faded_glyphs[g].c == *text)
+          break;
+      if (g == G_N_ELEMENTS (faded_glyphs))
+        continue;
+      for (row = 0; row < 7; row++)
+        for (col = 0; col < 5; col++)
+          if (faded_glyphs[g].rows[row] & (0x10 >> col))
+            map_rect (map, x + col * k, y + row * k, k, k, rgb, 1.0f);
+    }
+  return x;
+}
+
+/* the value at column cx of S of a sorted list of n values, interpolated */
+static gdouble
+curve_at (const gdouble *v,
+          gint           n,
+          gint           cx,
+          gint           S)
+{
+  gdouble f;
+  gint    i;
+
+  if (n < 2 || S < 2)
+    return v[0];
+  f = (gdouble) cx * (n - 1) / (S - 1);
+  i = MIN ((gint) f, n - 2);
+  return v[i] + (v[i + 1] - v[i]) * (f - i);
+}
+
+/* marks a curve (S values, 0 to 1, one per column) in an S x S mask, r
+ * pixels to each side; with dash, only every other dash long piece */
+static void
+mark_curve (guint8        *mask,
+            const gdouble *y,
+            gint           S,
+            gint           r,
+            gint           dash)
+{
+  gint cx;
+
+  for (cx = 0; cx < S; cx++)
+    {
+      gint a = (S - 1) - (gint) lround (CLAMP (y[cx], 0.0, 1.0) * (S - 1));
+      gint b = (S - 1) - (gint) lround (CLAMP (y[MIN (cx + 1, S - 1)], 0.0, 1.0) * (S - 1));
+      gint i, j;
+
+      if (dash > 0 && (cx / dash) % 2)
+        continue;
+      for (j = MIN (a, b) - r; j <= MAX (a, b) + r; j++)
+        for (i = cx - r; i <= cx + r; i++)
+          if (i >= 0 && j >= 0 && i < S && j < S)
+            mask[j * S + i] = 1;
+    }
+}
+
+/* one square: the three sorted channels (n values each) and the ideal
+ * ramp, at x, y, S pixels wide and high */
+static void
+map_plot (FadedMap      *map,
+          gint           x,
+          gint           y,
+          gint           S,
+          gint           r,
+          gdouble *const v[3],
+          gint           n,
+          gdouble        light_dark)
+{
+  static const gfloat panel[3] = { 0.1f, 0.1f, 0.1f }, frame[3] = { 0.45f, 0.45f, 0.45f };
+  guint8  *mask = g_new0 (guint8, (gsize) S * S * 4);
+  gdouble *ys   = g_new (gdouble, S);
+  gint     ch, cx, i, j;
+
+  map_rect (map, x - 1, y - 1, S + 2, S + 2, frame, 1.0f);
+  map_rect (map, x, y, S, S, panel, 1.0f);
+  for (cx = 0; cx < S; cx++)
+    ys[cx] = pow ((gdouble) cx / MAX (S - 1, 1), light_dark);
+  mark_curve (mask + (gsize) 3 * S * S, ys, S, 0, MAX (3, S / 24));
+  for (ch = 0; ch < 3; ch++)
+    {
+      for (cx = 0; cx < S; cx++)
+        ys[cx] = curve_at (v[ch], n, cx, S);
+      mark_curve (mask + (gsize) ch * S * S, ys, S, r, 0);
+    }
+  for (j = 0; j < S; j++)
+    for (i = 0; i < S; i++)
+      {
+        gfloat   rgb[3] = { 0.0f, 0.0f, 0.0f };
+        gboolean any    = FALSE;
+
+        for (ch = 0; ch < 3; ch++)
+          if (mask[(gsize) ch * S * S + j * S + i])
+            {
+              gint c;
+
+              for (c = 0; c < 3; c++)
+                rgb[c] = MIN (rgb[c] + faded_curve[ch][c], 1.0f);
+              any = TRUE;
+            }
+        if (any)
+          map_put (map, x + i, y + j, rgb, 1.0f);
+        else if (mask[(gsize) 3 * S * S + j * S + i])
+          map_put (map, x + i, y + j, faded_grey, 1.0f);
+      }
+  g_free (ys);
+  g_free (mask);
+}
+
+/* the values of each channel of the copy's colours (one per bin), sorted;
+ * v[ch] are g_new'd, returns how many */
+static gint
+sorted_channels (const FadedSpace *fs,
+                 const gfloat     *copy,
+                 gint              n,
+                 gdouble          *v[3])
+{
+  static const gdouble one[3] = { 1.0, 1.0, 1.0 };
+  FadedColor *colors = g_new (FadedColor, FADED_BINS);
+  gint        nc     = make_colors (fs, copy, n, one, one, colors);
+  gint        i, ch;
+
+  for (ch = 0; ch < 3; ch++)
+    {
+      v[ch] = g_new (gdouble, MAX (nc, 1));
+      v[ch][0] = 0.0;
+      for (i = 0; i < nc; i++)
+        v[ch][i] = colors[i].rgb[ch];
+      qsort (v[ch], nc, sizeof (gdouble), compare_double);
+    }
+  g_free (colors);
+  return MAX (nc, 1);
+}
+
+/* the plot for the image whole; FALSE (and nothing made) if the image is
+ * too small for one. before and after: the averaged copy (3
+ * floats per pixel, n pixels) before and after the correction. */
+static gboolean
+make_map (FadedMap            *map,
+          const GeglRectangle *whole,
+          const FadedSpace    *fs,
+          const gfloat        *before,
+          const gfloat        *after,
+          gint                 n,
+          const FadedFit      *fit,
+          gdouble              light_dark)
+{
+  static const gfloat black[3] = { 0.0f, 0.0f, 0.0f };
+  gint     S   = (gint) (0.3 * MIN (whole->width, whole->height));
+  gint     k   = MAX (1, S / 80), pad = MAX (2, S / 12), r = S / 180, lh = 7 * k;
+  gint     dash = MAX (3, S / 24);
+  gdouble *vb[3], *va[3];
+  gint     nb, na, ch, x, y, rows;
+  gchar    num[3][G_ASCII_DTOSTR_BUF_SIZE];
+  gint     num_w;
+
+  if (S < 24)
+    return FALSE;
+  for (ch = 0; ch < 3; ch++)
+    g_ascii_formatd (num[ch], sizeof num[ch], "%.2f", CLAMP (fit->lambda[ch], 0.0, 99.0));
+  /* "POWER R1.00 G1.00 B1.00" */
+  num_w = 6 * k * (6 + (gint) (strlen (num[0]) + strlen (num[1]) + strlen (num[2])) + 5);
+  map->w = pad + S + pad + S + pad;
+  rows   = num_w <= map->w - 2 * pad ? 3 : 2;
+  map->h = pad + lh + pad / 2 + 1 + S + 1 + (rows - 1) * (pad / 2 + lh) + pad;
+  map->x = whole->x + pad;
+  map->y = whole->y + MAX (0, whole->height - map->h - pad);
+  map->w = MIN (map->w, whole->x + whole->width - map->x);
+  map->h = MIN (map->h, whole->y + whole->height - map->y);
+  map->rgba = g_new (gfloat, (gsize) map->w * map->h * 4);
+  map_rect (map, 0, 0, map->w, map->h, black, 0.8f);
+
+  nb = sorted_channels (fs, before, n, vb);
+  na = sorted_channels (fs, after, n, va);
+
+  y = pad;
+  map_text (map, pad, y, k, "BEFORE", faded_grey);
+  map_text (map, 2 * pad + S, y, k, "AFTER", faded_grey);
+  y += lh + pad / 2 + 1;
+  map_plot (map, pad, y, S, r, vb, nb, light_dark);
+  map_plot (map, 2 * pad + S, y, S, r, va, na, light_dark);
+  y += S + 1 + pad / 2;
+
+  /* the legend: a dashed piece and IDEAL */
+  for (x = 0; x < 3 * dash; x++)
+    if ((x / dash) % 2 == 0)
+      map_put (map, pad + x, y + lh / 2, faded_grey, 1.0f);
+  map_text (map, pad + 4 * dash, y, k, "IDEAL", faded_grey);
+  if (rows == 3)
+    {
+      static const gchar *names[3] = { "R", "G", "B" };
+
+      y += lh + pad / 2;
+      x  = map_text (map, pad, y, k, "POWER ", faded_grey);
+      for (ch = 0; ch < 3; ch++)
+        {
+          x = map_text (map, x, y, k, names[ch], faded_ink[ch]);
+          x = map_text (map, x, y, k, num[ch], faded_ink[ch]);
+          x += 6 * k;
+        }
+    }
+  for (ch = 0; ch < 3; ch++)
+    {
+      g_free (vb[ch]);
+      g_free (va[ch]);
+    }
+  return TRUE;
+}
+
+/* the result --------------------------------------------------------------- */
 
 typedef struct
 {
@@ -882,6 +1229,7 @@ typedef struct
   const Babl     *fmt, *to_xyz, *from_xyz;   /* R'G'B'A float <-> RGBA float */
   gdouble         m[9], minv[9];             /* linear RGB <-> XYZ under D65 */
   const FadedFit *fit;
+  const FadedMap *map;                       /* NULL: none */
 } FadedApply;
 
 /* the inverse of a 3 x 3 matrix */
@@ -903,13 +1251,118 @@ invert3 (const gdouble *m,
   r[8] = (m[0] * m[4] - m[1] * m[3]) / det;
 }
 
+/* the correction of len pixels of R'G'B'A float from src into out;
+ * *scratch is room for it, g_renew'd as needed */
+static void
+correct (const FadedApply *dd,
+         const gfloat     *src,
+         gfloat           *out,
+         gint              len,
+         gfloat          **scratch)
+{
+  const FadedFit *fit = dd->fit;
+  gfloat         *xyz;
+  gint            i, ch;
+
+  for (i = 0; i < len; i++)
+    {
+      for (ch = 0; ch < 3; ch++)
+        {
+          gfloat v = src[i * 4 + ch];
+
+          if (! isfinite (v))
+            out[i * 4 + ch] = v;
+          else
+            {
+              gdouble r = power (v, fit->lambda[ch], fit->sigma[ch]);
+
+              /* clipped at 1 unless the input was above 1 already */
+              out[i * 4 + ch] = v > 1.0f ? r : MIN (r, 1.0);
+            }
+        }
+      out[i * 4 + 3] = src[i * 4 + 3];
+    }
+
+  if (! fit->stage3)
+    return;
+
+  xyz = *scratch = g_renew (gfloat, *scratch, (gsize) len * 4);
+  babl_process (dd->to_xyz, out, xyz, len);
+  for (i = 0; i < len; i++)
+    {
+      gfloat *p = xyz + i * 4;
+      gdouble x[3], d[3], luv[3];
+
+      if (! (isfinite (src[i * 4]) && isfinite (src[i * 4 + 1]) && isfinite (src[i * 4 + 2])))
+        continue;
+      d[0] = p[0]; d[1] = p[1]; d[2] = p[2];
+      mat3 (dd->m, d, x);
+      xyz_to_luv (x, fit->U0, fit->V0, luv);
+      luv[0] = luv[0] > FADED_L0 ? fit->p[0] * luv[0] + fit->q[0]
+                                 : fit->p[1] * luv[0] + fit->q[1];
+      luv[1] *= fit->uvfac;
+      luv[2] *= fit->uvfac;
+      luv_to_xyz (luv, fit->U0, fit->V0, x);
+      mat3 (dd->minv, x, d);
+      p[0] = d[0]; p[1] = d[1]; p[2] = d[2];
+    }
+  babl_process (dd->from_xyz, xyz, out, len);
+  for (i = 0; i < len; i++)
+    {
+      gboolean finite = isfinite (src[i * 4]) && isfinite (src[i * 4 + 1])
+                        && isfinite (src[i * 4 + 2]);
+      gboolean above  = src[i * 4] > 1.0f || src[i * 4 + 1] > 1.0f || src[i * 4 + 2] > 1.0f;
+
+      for (ch = 0; ch < 3; ch++)
+        {
+          gfloat v = out[i * 4 + ch];
+
+          if (! finite)
+            {
+              gfloat s = src[i * 4 + ch];
+
+              v = isfinite (s) ? power (s, fit->lambda[ch], fit->sigma[ch]) : s;
+              if (isfinite (v) && s <= 1.0f)
+                v = MIN (v, 1.0f);
+              out[i * 4 + ch] = v;
+              continue;
+            }
+          v = MAX (v, 0.0f);
+          out[i * 4 + ch] = above ? v : MIN (v, 1.0f);
+        }
+      out[i * 4 + 3] = src[i * 4 + 3];
+    }
+}
+
+/* the plot over the pixels of roi (out holds them, row by row) */
+static void
+draw_map (const FadedMap      *map,
+          const GeglRectangle *roi,
+          gfloat              *out)
+{
+  gint x0 = MAX (roi->x, map->x), x1 = MIN (roi->x + roi->width, map->x + map->w);
+  gint y0 = MAX (roi->y, map->y), y1 = MIN (roi->y + roi->height, map->y + map->h);
+  gint x, y, ch;
+
+  for (y = y0; y < y1; y++)
+    for (x = x0; x < x1; x++)
+      {
+        const gfloat *m = map->rgba + ((gsize) (y - map->y) * map->w + (x - map->x)) * 4;
+        gfloat       *p = out + ((gsize) (y - roi->y) * roi->width + (x - roi->x)) * 4;
+        gfloat        a = m[3];
+
+        for (ch = 0; ch < 3; ch++)
+          p[ch] = isfinite (p[ch]) ? m[ch] * a + p[ch] * (1.0f - a) : m[ch];
+        p[3] = a + p[3] * (1.0f - a);
+      }
+}
+
 /* the correction of one part of the result (run in parallel) */
 static void
 apply_area (const GeglRectangle *area,
             gpointer             data)
 {
-  FadedApply         *d   = data, *dd = data;
-  const FadedFit     *fit = d->fit;
+  FadedApply         *d   = data;
   GeglBufferIterator *it;
   gfloat             *xyz = NULL;
 
@@ -918,78 +1371,9 @@ apply_area (const GeglRectangle *area,
   gegl_buffer_iterator_add (it, d->input, area, 0, d->fmt, GEGL_ACCESS_READ, GEGL_ABYSS_NONE);
   while (gegl_buffer_iterator_next (it))
     {
-      gfloat       *out = it->items[0].data;
-      const gfloat *src = it->items[1].data;
-      gint          i, ch, len = it->length;
-
-      for (i = 0; i < len; i++)
-        {
-          for (ch = 0; ch < 3; ch++)
-            {
-              gfloat v = src[i * 4 + ch];
-
-              if (! isfinite (v))
-                out[i * 4 + ch] = v;
-              else
-                {
-                  gdouble r = power (v, fit->lambda[ch], fit->sigma[ch]);
-
-                  /* clipped at 1 unless the input was above 1 already */
-                  out[i * 4 + ch] = v > 1.0f ? r : MIN (r, 1.0);
-                }
-            }
-          out[i * 4 + 3] = src[i * 4 + 3];
-        }
-
-      if (! fit->stage3)
-        continue;
-
-      xyz = g_renew (gfloat, xyz, (gsize) len * 4);
-      babl_process (d->to_xyz, out, xyz, len);
-      for (i = 0; i < len; i++)
-        {
-          gfloat *p = xyz + i * 4;
-          gdouble x[3], d[3], luv[3];
-
-          if (! (isfinite (src[i * 4]) && isfinite (src[i * 4 + 1]) && isfinite (src[i * 4 + 2])))
-            continue;
-          d[0] = p[0]; d[1] = p[1]; d[2] = p[2];
-          mat3 (dd->m, d, x);
-          xyz_to_luv (x, fit->U0, fit->V0, luv);
-          luv[0] = luv[0] > FADED_L0 ? fit->p[0] * luv[0] + fit->q[0]
-                                     : fit->p[1] * luv[0] + fit->q[1];
-          luv[1] *= fit->uvfac;
-          luv[2] *= fit->uvfac;
-          luv_to_xyz (luv, fit->U0, fit->V0, x);
-          mat3 (dd->minv, x, d);
-          p[0] = d[0]; p[1] = d[1]; p[2] = d[2];
-        }
-      babl_process (d->from_xyz, xyz, out, len);
-      for (i = 0; i < len; i++)
-        {
-          gboolean finite = isfinite (src[i * 4]) && isfinite (src[i * 4 + 1])
-                            && isfinite (src[i * 4 + 2]);
-          gboolean above  = src[i * 4] > 1.0f || src[i * 4 + 1] > 1.0f || src[i * 4 + 2] > 1.0f;
-
-          for (ch = 0; ch < 3; ch++)
-            {
-              gfloat v = out[i * 4 + ch];
-
-              if (! finite)
-                {
-                  gfloat s = src[i * 4 + ch];
-
-                  v = isfinite (s) ? power (s, fit->lambda[ch], fit->sigma[ch]) : s;
-                  if (isfinite (v) && s <= 1.0f)
-                    v = MIN (v, 1.0f);
-                  out[i * 4 + ch] = v;
-                  continue;
-                }
-              v = MAX (v, 0.0f);
-              out[i * 4 + ch] = above ? v : MIN (v, 1.0f);
-            }
-          out[i * 4 + 3] = src[i * 4 + 3];
-        }
+      correct (d, it->items[1].data, it->items[0].data, it->length, &xyz);
+      if (d->map)
+        draw_map (d->map, &it->items[0].roi, it->items[0].data);
     }
   g_free (xyz);
 }
@@ -1004,21 +1388,26 @@ process (GeglOperation       *operation,
   GeglProperties      *o   = GEGL_PROPERTIES (operation);
   const Babl          *fmt = gegl_operation_get_format (operation, "output");
   const GeglRectangle *in  = gegl_operation_source_get_bounding_box (operation, "input");
+  gboolean             show_map = o->show == RESTORE_FADED_MAP;
   GeglRectangle        whole;
   FadedFit             fit;
   FadedApply           d;
+  FadedMap             map = { 0, 0, 0, 0, NULL };
+  gfloat              *copy = NULL;
+  gint                 n = 0;
 
   (void) level;
   if (! in || gegl_rectangle_is_infinite_plane (in) || in->width <= 0 || in->height <= 0
-      || o->amount <= 0.0)
+      || (o->amount <= 0.0 && ! show_map))
     {
       gegl_buffer_copy (input, result, GEGL_ABYSS_NONE, output, result);
       return TRUE;
     }
   whole = *in;
-  fit   = estimate (operation, input, &whole, o);
+  fit   = estimate (operation, input, &whole, o, show_map ? &copy : NULL, &n);
   if (! fit.ok)
     {
+      g_free (copy);
       gegl_buffer_copy (input, result, GEGL_ABYSS_NONE, output, result);
       return TRUE;
     }
@@ -1054,7 +1443,43 @@ process (GeglOperation       *operation,
     d.from_xyz = babl_fish (lin, fmt);
   }
   d.fit      = &fit;
+  d.map      = NULL;
+
+  if (copy)
+    {
+      /* the copy through the same correction, for the plot's "after" */
+      const Babl *space = gegl_operation_get_source_space (operation, "input");
+      gfloat     *src   = g_new (gfloat, (gsize) n * 4), *dst = g_new (gfloat, (gsize) n * 4);
+      gfloat     *after = g_new (gfloat, (gsize) n * 3), *xyz = NULL;
+      FadedSpace  fs;
+      gint        i, ch;
+
+      for (i = 0; i < n; i++)
+        {
+          for (ch = 0; ch < 3; ch++)
+            src[i * 4 + ch] = copy[i * 3 + ch];
+          src[i * 4 + 3] = 1.0f;
+        }
+      correct (&d, src, dst, n, &xyz);
+      for (i = 0; i < n; i++)
+        for (ch = 0; ch < 3; ch++)
+          after[i * 3 + ch] = CLAMP (dst[i * 4 + ch], 0.0f, 1.0f);
+      fs.to_Y   = babl_fish (babl_format_with_space ("R'G'B' double", space),
+                             babl_format_with_space ("Y double", space));
+      fs.to_xyz = NULL;
+      fs.U0     = fit.U0;
+      fs.V0     = fit.V0;
+      if (make_map (&map, &whole, &fs, copy, after, n, &fit, o->light_dark))
+        d.map = &map;
+      g_free (xyz);
+      g_free (after);
+      g_free (dst);
+      g_free (src);
+      g_free (copy);
+    }
+
   gegl_parallel_distribute_area (result, 64.0, GEGL_SPLIT_STRATEGY_AUTO, apply_area, &d);
+  g_free (map.rgba);
   return TRUE;
 }
 

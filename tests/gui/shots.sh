@@ -2,7 +2,8 @@
 # The filter's dialog in GIMP on a Broadway display, driven with a
 # headless Chrome, for the screenshots in docs/: the Colors menu, the
 # dialog of Restore Faded Colors on a faded DOCUMERICA slide (public
-# domain, tests/images), opened by its name from Search Actions (/), and
+# domain, tests/images), opened by its name from Search Actions (/), the
+# dialog with Show set to Colour map (the plot on the canvas), and
 # the filter applied with OK, the image saved, and the XCF checked in
 # headless GIMP: the layer keeps the filter, live, with its settings.
 # Run tests/gimp-check.sh first (it puts the modules in place). Lists
@@ -13,7 +14,8 @@
 #   RESTORE_SHOTS="dialog" tests/gui/shots.sh   some (colors dialog live)
 #
 # The positions were measured on screenshots (2026-11-18, GIMP 3.2.8,
-# the interface font DejaVu Sans as gimp-devtools pins it).
+# the interface font DejaVu Sans as gimp-devtools pins it), except SHOW
+# (see there).
 #
 # Prints PASS or FAIL per step and exits non-zero if one failed.
 #
@@ -59,6 +61,11 @@ AUTO=338,400
 # on Broadway the search field of Search Actions needs a click before it
 # takes the keys
 SEARCH_FIELD=360,176
+# the Show combo box, the dialog's last row since 2026-11-18 (after
+# Amount, which was at 1070,364 with the dialog moved to the top right):
+# NOT MEASURED, estimated one row (28 pixels) below Amount; check it on
+# tests/output/gui/map-before.png on the first run
+SHOW=1070,392
 
 # search_filter <name>: opens Restore Faded Colors from Search Actions
 search_filter () {
@@ -91,6 +98,13 @@ session () {
         search_filter dialog || { stop_all; return; }
         $cdp "$view" wait:6000 shot:"$docs/restore-faded-dialog.png" >/dev/null &&
           pass "dialog: the dialog on the slide, default settings";;
+    map)
+        # Show: Colour map, chosen from the combo box with the keys (the
+        # item after Result)
+        search_filter map || { stop_all; return; }
+        $cdp "$view" wait:4000 shot:"$gui_out/map-before.png" click:$SHOW wait:1000 \
+          key:Down key:Enter wait:8000 shot:"$docs/restore-faded-map.png" >/dev/null &&
+          pass "map: the dialog with Show set to Colour map (look at it)";;
     live)
         search_filter live || { stop_all; return; }
         # OK: Enter in the dialog
@@ -107,7 +121,7 @@ session () {
 
 snapshot_begin gui
 rm -f "$gui_out/gui-live.xcf"
-for s in ${RESTORE_SHOTS:-colors dialog live}; do
+for s in ${RESTORE_SHOTS:-colors dialog live map}; do
     session "$s"
 done
 
@@ -126,10 +140,11 @@ from gi.repository import Gimp, Gio
 img = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path('$xcf'))
 for l in img.get_layers():
     for f in l.get_filters():
-        print('FILTER', f.get_operation_name(), round(f.get_config().get_property('light-dark'), 2))
+        c = f.get_config()
+        print('FILTER', f.get_operation_name(), round(c.get_property('light-dark'), 2), c.get_property('show'))
 " --quit >"$gui_out/xcf-check.log" 2>&1
-    if grep -qE "^FILTER restore:faded 1.5$" "$gui_out/xcf-check.log"; then
-        pass "live: after loading the XCF the layer has the live filter restore:faded, Light-Dark 1.5"
+    if grep -qE "^FILTER restore:faded 1.5 result$" "$gui_out/xcf-check.log"; then
+        pass "live: after loading the XCF the layer has the live filter restore:faded, Light-Dark 1.5, Show result"
     else
         fail "live: the XCF's layer: $(grep FILTER "$gui_out/xcf-check.log")"
     fi

@@ -10,7 +10,9 @@
 #   tests/photos.sh [--size N] [--per-photo] [--props "name=value ..."]
 #   tests/photos.sh --slides [--props ...]   the faded DOCUMERICA slides
 #                   instead (tests/slides.py): the cast left, and sheets
-#                   to look at in tests/output/slides
+#                   to look at in tests/output/slides (or $SLIDES_OUT;
+#                   e.g. SLIDES_OUT=tests/output/slides-map with
+#                   --props show=colour-map for the plots)
 #
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -31,7 +33,7 @@ status=0
 snapshot_begin photos
 if [ "$1" = --slides ]; then
     shift
-    in_gimp python3 "$here/slides.py" "$out/slides" "$@" || status=1
+    in_gimp python3 "$here/slides.py" "${SLIDES_OUT:-$out/slides}" "$@" || status=1
 else
     in_gimp python3 "$here/photos.py" "$out/photos" "$@" || status=1
 fi

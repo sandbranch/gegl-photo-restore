@@ -24,7 +24,7 @@
  * scene are printed (see check_fading); gray stays gray, alpha and broken pixels
  * pass through, few colours pass through, Light-Dark darkens, and the
  * result is the same for any tile size, requested region and buffer
- * origin.
+ * origin; show=colour-map draws its plot in the lower left corner only.
  *
  *   check <build folder>
  *
@@ -749,6 +749,57 @@ check_invariance (const gfloat *orig)
   g_free (part);
 }
 
+/* show=colour-map: the plot changes only the lower left corner, enough
+ * of it, and it is the same for tiles and origin; outside it the result
+ * is that of show=result (and at amount 0 the input) */
+static void
+check_colour_map (const gfloat *orig)
+{
+  gsize   n     = (gsize) W * H;
+  gfloat *faded = fade (orig, &fadings[0]);
+  gfloat *res   = run (NULL, faded, W, H);
+  gfloat *map   = run ("show=colour-map", faded, W, H);
+  gfloat *t     = run_full ("show=colour-map", faded, W, H, 0, 0, 37, 23, NULL);
+  gfloat *o     = run_full ("show=colour-map", faded, W, H, 1000, -77, 0, 0, NULL);
+  gint    x0 = W, x1 = -1, y0 = H, y1 = -1, changed = 0, x, y;
+  gdouble d;
+
+  for (y = 0; y < H; y++)
+    for (x = 0; x < W; x++)
+      {
+        gsize i = ((gsize) y * W + x) * 4;
+
+        if (max_diff (map + i, res + i, 4) > 0.0)
+          {
+            changed++;
+            x0 = MIN (x0, x); x1 = MAX (x1, x);
+            y0 = MIN (y0, y); y1 = MAX (y1, y);
+          }
+      }
+  report ("colour_map_in_the_lower_left", changed > 0 && x1 < W / 2 && y0 > H / 3 && y1 < H,
+          "pixels changed %d in x %d to %d, y %d to %d", changed, x0, x1, y0, y1);
+  report ("colour_map_large_enough", changed > (x1 - x0 + 1) * (y1 - y0 + 1) / 2
+          && (x1 - x0 + 1) > W / 3, "%d by %d pixels", x1 - x0 + 1, y1 - y0 + 1);
+  d = MAX (max_diff (map, t, n * 4), max_diff (map, o, n * 4));
+  report ("colour_map_same_for_tiles_and_origin", d == 0.0, "largest difference %.2g", d);
+  g_free (t);
+  g_free (o);
+
+  in_fmt = "R'G'B'A float";
+  t = run ("show=colour-map amount=0", faded, W, H);
+  for (y = 0, d = 0.0; y < H; y++)
+    for (x = 0; x < W; x++)
+      if (x < x0 || x > x1 || y < y0 || y > y1)
+        d = MAX (d, max_diff (t + ((gsize) y * W + x) * 4, faded + ((gsize) y * W + x) * 4, 4));
+  report ("colour_map_amount_0", d == 0.0 && max_diff (t, faded, n * 4) > 0.1,
+          "outside the plot largest difference to the input %.2g", d);
+  in_fmt = "R'G'B'A u16";
+  g_free (t);
+  g_free (map);
+  g_free (res);
+  g_free (faded);
+}
+
 int
 main (int    argc,
       char **argv)
@@ -783,6 +834,7 @@ main (int    argc,
       check_few_colors ();
       check_light_dark (orig);
       check_invariance (orig);
+      check_colour_map (orig);
     }
   g_free (orig);
 

@@ -41,12 +41,36 @@ settings:
 | Enhance lightness | on | stage 3: the darkest and lightest 2.5% moved half way to L\* 10 and 95 |
 | Saturation | 0.4 | stage 3: the mean saturation (CIE L\*u\*v\*) raised to this if below, at most 1.5 times; 0 is off |
 | Amount | 1 | how much of the correction: everything blended towards no change |
+| Show | Result | Result, or Colour map: the result with a plot of why in its lower left corner (below) |
 
 The estimate is made once from the whole image, so the result is the
 same whatever tiles or region GIMP renders, and the same on every run.
 Integer images are clipped to 0 to 1, as Daniell's (8 bit); values that
 were above 1 in a float image stay above 1. Alpha and pixels that are not
 finite pass through.
+
+### Why: the colour map
+
+Show: Colour map draws over the lower left corner of the result what
+the estimate saw. Left (BEFORE): the colours of the scan as the method
+sees them (one per bin of the small copy), each channel sorted from
+dark to light on its own, one curve per channel; right (AFTER): the same
+colours after the whole correction. The curves add like light, so where
+the three channels agree the curve is white, and a channel apart from
+the others shows in its own colour: that is the cast. The dashed curve
+is the ideal spread of stage 1, `(i/n)^Light-Dark`; stage 2 (mean L\* 50)
+and stage 3 (the lightness stretch) move the result away from it on
+purpose. Below: the combined power per channel (above 1: that dye's
+channel was lifted by fading and is pulled down again). The plot takes
+30% of the image's shorter side and is the same for any tiles or
+region; images under about 80 pixels on the shorter side get none, and
+on small ones the line of powers is left out.
+
+![Show: Colour map on a faded slide (DOCUMERICA, NARA 546220, public domain)](docs/colour-map.jpg)
+
+The scan above lost most of its cyan dye: red sits high above green and
+blue before, and the three lie together after. The map is for looking
+only; leave Show at Result for the picture itself.
 
 ## The method
 
@@ -147,7 +171,7 @@ installed and the tests touch none of your own GIMP folders (they run
 with a throwaway home in tests/output and check your folders before and
 after).
 
-    tests/check.sh            # build, 23 numerical checks, also under ASan and UBSan
+    tests/check.sh            # build, 27 numerical checks, also under ASan and UBSan
     tests/check.sh quick      # the same without the sanitizers
     tests/gimp-check.sh       # the filter in headless GIMP 3.2 against plain GEGL
     tests/reference.sh        # Daniell's pyrestore4.py on the same images (needs NumPy, Pillow)

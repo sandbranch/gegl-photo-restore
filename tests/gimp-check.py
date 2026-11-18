@@ -35,12 +35,13 @@ def result(name, ok, msg=''):
         failed.append(name)
 
 
-ENUMS = {'restore:faded': {}}
+ENUMS = {'restore:faded': {'show': ['result', 'colour-map']}}
 
 CASES = [
     ('faded', 'restore:faded', 'Restore Faded Colors', {}),
     ('faded_darker', 'restore:faded', 'Restore Faded Colors', {'light-dark': 1.5}),
     ('faded_lighter', 'restore:faded', 'Restore Faded Colors', {'light-dark': 0.7}),
+    ('faded_map', 'restore:faded', 'Restore Faded Colors', {'show': 'colour-map'}),
 ]
 
 
@@ -205,6 +206,9 @@ for label, op, title, props in CASES:
         # plain GEGL on the layer's pixels, stored in the layer's format
         want_buf = gegl_result(layer.get_buffer(), op, props, W, H)
         want = quantized(want_buf, image, layer)
+        if props.get('show') == 'colour-map':
+            plain = {k: v for k, v in props.items() if k != 'show'}
+            want_plain = quantized(gegl_result(layer.get_buffer(), op, plain, W, H), image, layer)
         f = add_filter(layer, op, title, props)
         names = [x.get_operation_name() for x in layer.get_filters()]
         ok_filter = names == [op]
@@ -239,9 +243,15 @@ for label, op, title, props in CASES:
         d2 = max_diff(pixels(ll), want2)
         tol = tol_for(prec)
         ok = ok_filter and same and d <= tol and d2 <= tol
+        extra = ''
+        if props.get('show') == 'colour-map':
+            # the plot is there: the result without it differs, by much
+            dm = max_diff(got, want_plain)
+            ok = ok and dm > 0.3
+            extra = ', the plot changes pixels by up to %.2f' % dm
         result(name, ok, 'non-destructive %s, settings after XCF %s, against plain GEGL '
-               '%.2g, after XCF %.2g' % (ok_filter, 'kept' if same else 'LOST ' + ', '.join(bad),
-                                         d, d2))
+               '%.2g, after XCF %.2g%s' % (ok_filter, 'kept' if same else 'LOST ' + ', '.join(bad),
+                                           d, d2, extra))
         if precision == Gimp.Precision.FLOAT_NON_LINEAR:
             save_tiff(os.path.join(OUT, 'gimp-' + label + '.tif'), got)
         image.delete()
