@@ -30,8 +30,11 @@ curve per channel.
 - tests/gimp-check.sh: the filter in headless GIMP 3.2 (every precision,
   grayscale, XCF, offsets, the gegl command line), all pass.
 - tests/reference.sh: pyrestore4.py on the same images and the grid.
-- tests/images/fetch.py and manifest.json: 10 CC0 photos and 6 faded
+- tests/images/fetch.py and manifest.json: 10 CC0 photos and 15 faded
   DOCUMERICA slides from Commons, licence read per file, SHA-256 checked.
+- tests/photos.sh --study (tests/slide-study.py): the defaults on the
+  faded slides, Light-Dark 1, 1.25, 1.5 by Saturation 0.4, 0.6; numbers
+  and sheets (README; defaults kept).
 - tests/photos.sh: the synthetic fading of the photos against
   pyrestore4.py and three baselines; `--slides`: the real slides.
 - tests/gui/shots.sh: written, **not run** (the GUI pass is David's).
@@ -156,11 +159,12 @@ stain as its own term (open question 7).
   world. Target: better than every baseline on mean Delta E to `x`, and
   within 1 of pyrestore4.py.
 - **Real faded slides**: the EPA DOCUMERICA series (1972 to 1977, public
-  domain, `{{PD-USGov-EPA}}`, many visibly faded; one checked,
-  docs/research.md section 5). No ground truth: the remaining cast (mean
+  domain, `{{PD-USGov-EPA}}`, many visibly faded; 15 in the manifest,
+  licence read per file). No ground truth: the remaining cast (mean
   a\*, b\* of near neutral colours) is printed, and the results are looked
   at, side by side with pyrestore4.py, before and after pictures in the
-  README.
+  README. **Done**: cast left mean 2.82 (pyrestore4.py 3.64, scans
+  6.24); tests/photos.sh --study for the defaults.
 - **Reference**: tests/reference.sh runs Daniell's own code (Python 3 port
   in tests/reference, needs NumPy and Pillow on the machine) on the same
   images. A second reference, Restore2.py in GIMP 2.10, would need a GIMP
@@ -216,12 +220,17 @@ stain as its own term (open question 7).
 - Q10 name: "Restore Faded Colors"; Daniell credited in the operation's
   description and the README.
 - Light-Dark default 1.5 and Saturation 0.4 instead of Daniell's 1 and
-  0.6, by measurement on the photos (README). For David to judge on his
-  own faded slides: 1.5 is a little darker than Daniell's; 1.75 measured
-  slightly better still (14.94) but looked dark on the DOCUMERICA
-  slides. The ten test photos are modern, often dark and colour graded
-  (Unsplash), so they favour a darker default more than family slides
-  might.
+  0.6, by measurement on the photos (README). 1.75 measured slightly
+  better still (14.94) but looked dark on the DOCUMERICA slides.
+  **Checked again on 15 faded slides** (2026-11-18 evening, README "The
+  defaults on faded slides", tests/photos.sh --study): kept. The cast
+  left on near neutral colours is lowest at 1.5 (mean 2.84; 1.25: 3.07;
+  1: 3.02) and the photos agree (15.22; 15.57; 16.72); by eye 1 is pale
+  and flat on bright scenes, 1.5 dark on dark ones, 1.25 between and
+  best looking on several, so the numbers and the look do not agree on
+  a change. Saturation 0.6: the same cast (2.87), more clipping (5.5%
+  against 4.4%), clearly worse on the photos (16.04). For David to judge
+  on his own slides: try 1.25 where 1.5 comes out dark.
 
 ## Open questions for the user
 
@@ -280,6 +289,14 @@ stain as its own term (open question 7).
   Report upstream.
 - Daniell's Restore3.py opens a debug file at a hard-coded path of his own
   (not commented out), so it cannot run elsewhere.
+- Stage 2 can jump between minima as Light-Dark changes: on the
+  chemical plant slide (NARA 546220) between 1.3 and 1.35 its blue scale
+  goes from 0.88 to 1.25 and the hazy sky clips in blue (36.5% of the
+  pixels against 1.6%, the same at 800 and 1200 pixels). Its final
+  measure is higher there (0.56 at 1.3, 1.94 at 1.35; from different
+  stage 1 results, so not strictly comparable). Not
+  fixed: a second start (from the stage 1 result held as it is) or a
+  limit on clipping in the measure would be the places to look.
 - The `gegl` program warns of one leaked GeglBuffer after this
   operation, as after any that caches its whole result (gegl-presence's
   PLAN.md); in tests/check.c nothing leaks.

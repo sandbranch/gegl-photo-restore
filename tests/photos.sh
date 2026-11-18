@@ -13,6 +13,10 @@
 #                   to look at in tests/output/slides (or $SLIDES_OUT;
 #                   e.g. SLIDES_OUT=tests/output/slides-map with
 #                   --props show=colour-map for the plots)
+#   tests/photos.sh --study [--size N]   the defaults on the faded slides
+#                   (tests/slide-study.py): Light-Dark 1, 1.25, 1.5 by
+#                   Saturation 0.4, 0.6, numbers and sheets in
+#                   tests/output/slide-study
 #
 # Copyright 2026 David
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -31,7 +35,10 @@ export GEGL_PATH
 pass_env="GEGL_PATH"
 status=0
 snapshot_begin photos
-if [ "$1" = --slides ]; then
+if [ "$1" = --study ]; then
+    shift
+    in_gimp python3 "$here/slide-study.py" "$out/slide-study" "$@" || status=1
+elif [ "$1" = --slides ]; then
     shift
     in_gimp python3 "$here/slides.py" "${SLIDES_OUT:-$out/slides}" "$@" || status=1
 else
